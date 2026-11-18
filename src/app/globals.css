@@ -1,0 +1,106 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource/nixie-one";
+
+/*
+ * Identidade DataGroup — tokens extraídos de datagroup.global (abyss / jelly / mist)
+ * combinados com os padrões de superfície do claude.datagroup.global.
+ */
+@theme {
+  --color-abyss-deep: #121211;
+  --color-abyss: #1d1d1b;
+  --color-surface: #222220;
+  --color-surface-2: #2a2a27;
+  --color-mist: #f7f7f7;
+  --color-jelly-blue: #024ffa;
+  --color-jelly-sky: #1382e9;
+  --color-jelly-cyan: #25b9d7;
+  --color-jelly-teal: #35e8c8;
+  --color-danger: #f0605a;
+  --color-warn: #f2b84b;
+
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Nixie One", ui-serif, Georgia, serif;
+
+  --radius-card: 0.875rem;
+  --shadow-card: 0 1px 0 0 rgb(255 255 255 / 0.05) inset, 0 30px 60px -30px rgb(0 0 0 / 0.6);
+  --shadow-glow: 0 10px 40px -12px rgb(2 79 250 / 0.55);
+
+  --animate-fade-up: fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    background: var(--color-abyss-deep);
+  }
+
+  body {
+    background: var(--color-abyss-deep);
+    color: var(--color-mist);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: rgb(53 232 200 / 0.3);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-jelly-teal);
+    outline-offset: 2px;
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="month"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    opacity: 0.5;
+    cursor: pointer;
+  }
+}
+
+@utility text-brand-gradient {
+  color: transparent;
+  background-image: linear-gradient(90deg, #024ffa, #1382e9 28%, #25b9d7 62%, #35e8c8);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+@utility bg-brand-gradient {
+  background-image: linear-gradient(90deg, #024ffa, #1382e9 28%, #25b9d7 62%, #30dbcc 86%, #35e8c8);
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "cv11";
+}
+
+/* Grão sutil para o fundo não parecer "chapado" */
+@utility grain {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .035 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
