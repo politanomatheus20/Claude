@@ -165,3 +165,4 @@ npm run dev                    # http://localhost:3000
 | 2026-11-17 | v0.1: login por domínio com sessão persistente, painel com barra de meta (metade/fim, animada), cadastro de clientes, versões de proposta, invoices, anexos, metas mensais, identidade visual DataGroup (água-viva + tentáculos), testes das regras de cálculo. |
 | 2026-11-17 | v0.2: modelo refeito com base na planilha real — contratos (A→AJ), fórmulas idênticas (N, R, T…), ajustes manuais, atualizações, financeiro (parcelas, recebido, saldo), vigência, visão Planilha com totais/filtros/exportação, importador com conferência (289 valores, 0 divergências). |
 | 2026-11-17 | v0.3: Planilha editável célula a célula com recálculo instantâneo e gravação automática (histórico por edição); tela inteira + modo tela cheia; testes da edição. |
+| 2026-11-17 | Textos explicativos removidos do login, do painel e da tela de metas. |

@@ -27,7 +27,7 @@ export function LoginForm() {
           required
           defaultValue={state.email}
           placeholder="voce@datagroup.global"
-          aria-describedby="email-help"
+          aria-describedby={state.error ? "email-help" : undefined}
           className="h-11 min-w-0 flex-1 bg-transparent px-3 text-[15px] text-mist outline-none placeholder:text-mist/30"
         />
         <Button type="submit" variant="primary" className="h-11 px-5" disabled={pending}>
@@ -35,13 +35,11 @@ export function LoginForm() {
           <span>Entrar</span>
         </Button>
       </div>
-      <p
-        id="email-help"
-        role={state.error ? "alert" : undefined}
-        className={state.error ? "mt-3 text-sm text-danger" : "mt-3 text-[13px] text-mist/40"}
-      >
-        {state.error ?? "Somente e-mails @datagroup.global. Depois do primeiro acesso, você entra direto."}
-      </p>
+      {state.error ? (
+        <p id="email-help" role="alert" className="mt-3 text-sm text-danger">
+          {state.error}
+        </p>
+      ) : null}
     </form>
   );
 }

@@ -26,7 +26,6 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
       <PageHeader
         eyebrow="Painel"
         title={monthTitle(month)}
-        description="A meta soma só a consultoria: suporte do mês (anual ÷ 12) + treinamento de liderança ÷ 12."
         actions={<MonthSwitcher month={month} />}
       />
 

@@ -18,7 +18,6 @@ export default async function GoalsPage() {
       <PageHeader
         eyebrow="Metas"
         title="Metas mensais"
-        description="Defina o valor que precisa ser atingido a cada mês. Para alterar uma meta, salve de novo o mesmo mês."
       />
 
       <Card className="animate-fade-up">
