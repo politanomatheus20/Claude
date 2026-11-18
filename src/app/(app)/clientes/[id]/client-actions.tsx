@@ -42,11 +42,28 @@ function Footer({ pending, label }: { pending: boolean; label: string }) {
   );
 }
 
+type OpenProps = { open: boolean; setOpen: (open: boolean) => void };
+
+/**
+ * Ao fechar um diálogo, recria o formulário: reabrir mostra os dados atuais,
+ * sem os valores e erros de uma tentativa anterior que foi cancelada.
+ */
+function withFreshState<P extends object>(Inner: React.ComponentType<P & OpenProps>) {
+  return function FreshDialog(props: P) {
+    const [open, setOpenRaw] = useState(false);
+    const [generation, setGeneration] = useState(0);
+    const setOpen = (o: boolean) => {
+      setOpenRaw(o);
+      if (!o) setGeneration((g) => g + 1);
+    };
+    return <Inner key={generation} {...props} open={open} setOpen={setOpen} />;
+  };
+}
+
 /** Estado do form só é reaproveitado quando a última tentativa falhou. */
 const failed = (s: ActionState) => (s.ok ? undefined : s);
 
-export function EditClientDialog({ client }: { client: Client }) {
-  const [open, setOpen] = useState(false);
+function EditClientDialogInner({ client, open, setOpen }: { client: Client } & OpenProps) {
   const [state, action, pending] = useActionState<ActionState, FormData>(updateClientInfo.bind(null, client.id), {});
   useActionFeedback(state, () => setOpen(false));
   const f = failed(state);
@@ -73,8 +90,7 @@ export function EditClientDialog({ client }: { client: Client }) {
 }
 
 /** Novo contrato: "atualizacao" = linha da seção ATUALIZAÇÃO da planilha. */
-export function AddContractDialog({ clientId, kind, variant }: { clientId: string; kind: ContractKind; variant?: "link" }) {
-  const [open, setOpen] = useState(false);
+function AddContractDialogInner({ clientId, kind, variant, open, setOpen }: { clientId: string; kind: ContractKind; variant?: "link" } & OpenProps) {
   const [state, action, pending] = useActionState<ActionState, FormData>(addContract.bind(null, clientId, kind), {});
   useActionFeedback(state, () => setOpen(false));
   const f = failed(state);
@@ -120,8 +136,7 @@ export function AddContractDialog({ clientId, kind, variant }: { clientId: strin
 }
 
 /** Editar contrato = atualizar proposta: nova versão no histórico + recálculo. */
-export function EditContractDialog({ contract }: { contract: Contract }) {
-  const [open, setOpen] = useState(false);
+function EditContractDialogInner({ contract, open, setOpen }: { contract: Contract } & OpenProps) {
   const [state, action, pending] = useActionState<ActionState, FormData>(updateContract.bind(null, contract.id), {});
   useActionFeedback(state, () => setOpen(false));
   const f = failed(state);
@@ -150,8 +165,7 @@ export function EditContractDialog({ contract }: { contract: Contract }) {
   );
 }
 
-export function ReceiptDialog({ contractId, balance }: { contractId: string; balance: number }) {
-  const [open, setOpen] = useState(false);
+function ReceiptDialogInner({ contractId, balance, open, setOpen }: { contractId: string; balance: number } & OpenProps) {
   const [state, action, pending] = useActionState<ActionState, FormData>(addReceipt.bind(null, contractId), {});
   useActionFeedback(state, () => setOpen(false));
   const f = failed(state);
@@ -176,8 +190,7 @@ export function ReceiptDialog({ contractId, balance }: { contractId: string; bal
   );
 }
 
-export function AddInvoiceDialog({ clientId, contracts }: { clientId: string; contracts: { id: string; label: string }[] }) {
-  const [open, setOpen] = useState(false);
+function AddInvoiceDialogInner({ clientId, contracts, open, setOpen }: { clientId: string; contracts: { id: string; label: string }[] } & OpenProps) {
   const [state, action, pending] = useActionState<ActionState, FormData>(addInvoice.bind(null, clientId), {});
   useActionFeedback(state, () => setOpen(false));
   const v = failed(state)?.values;
@@ -244,8 +257,7 @@ export function AddInvoiceDialog({ clientId, contracts }: { clientId: string; co
   );
 }
 
-export function AddAttachmentDialog({ clientId }: { clientId: string }) {
-  const [open, setOpen] = useState(false);
+function AddAttachmentDialogInner({ clientId, open, setOpen }: { clientId: string } & OpenProps) {
   const [state, action, pending] = useActionState<ActionState, FormData>(attachProposalFile.bind(null, clientId), {});
   useActionFeedback(state, () => setOpen(false));
 
@@ -363,3 +375,10 @@ function ConfirmDelete({ title, description, trigger, onConfirm }: { title: stri
     </Dialog>
   );
 }
+
+export const EditClientDialog = withFreshState(EditClientDialogInner);
+export const AddContractDialog = withFreshState(AddContractDialogInner);
+export const EditContractDialog = withFreshState(EditContractDialogInner);
+export const ReceiptDialog = withFreshState(ReceiptDialogInner);
+export const AddAttachmentDialog = withFreshState(AddAttachmentDialogInner);
+export const AddInvoiceDialog = withFreshState(AddInvoiceDialogInner);

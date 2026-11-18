@@ -98,6 +98,7 @@ export const contracts = sqliteTable(
     // Consultoria (S) = suporte + treinamento para liderança
     supportCents: integer("support_cents").notNull().default(0), // mensal: valor/mês · anual: valor/ano
     trainingCents: integer("training_cents").notNull().default(0), // valor total
+    consultingOverrideCents: integer("consulting_override_cents"), // S (quando digitado na Planilha)
 
     // Status
     action: text("action"), // U — Ação

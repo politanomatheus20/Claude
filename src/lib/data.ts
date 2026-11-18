@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { asc, desc, eq } from "drizzle-orm";
 import { addMonths, format, parse } from "date-fns";
 import { requireUser } from "./auth/dal";
@@ -86,7 +87,8 @@ export async function listClients(query?: string) {
     .sort((a, b) => (b.main?.signedAt ?? "").localeCompare(a.main?.signedAt ?? "") || a.client.name.localeCompare(b.client.name));
 }
 
-export async function getClient(id: string) {
+/** Em cache por requisição: a página e o generateMetadata compartilham a mesma leitura. */
+export const getClient = cache(async (id: string) => {
   await requireUser();
   const client = await db.query.clients.findFirst({ where: eq(clients.id, id) });
   if (!client) return null;
@@ -125,7 +127,7 @@ export async function getClient(id: string) {
     invoicesTotal: clientInvoices.reduce((s, i) => s + i.amountCents, 0),
     files: clientFiles,
   };
-}
+});
 
 export async function listGoals() {
   await requireUser();

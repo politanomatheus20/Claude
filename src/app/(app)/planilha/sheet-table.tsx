@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Check, Download, ExternalLink, Loader2, Maximize2, Minimize2, Search } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { updateSheetCell } from "@/app/actions";
@@ -95,7 +95,10 @@ const COLS: Col[] = [
     key: "R", group: "Custo · Claude", title: "Total licença", field: "licenseTotalOverrideCents", width: 140, sum: true, hint: "Fórmula P + Q · Delete volta à fórmula",
     num: (x) => x.calc.licenseTotal, manual: (x) => x.contract.licenseTotalOverrideCents !== null,
   }),
-  moneyCol({ key: "S", group: "Resultado", title: "Consultoria", field: "consulting", width: 130, sum: true, hint: "Suporte no ano + treinamento", num: (x) => x.calc.consulting }),
+  moneyCol({
+    key: "S", group: "Resultado", title: "Consultoria", field: "consulting", width: 130, sum: true, hint: "Fórmula: suporte no ano + treinamento · Delete volta à fórmula",
+    num: (x) => x.calc.consulting, manual: (x) => x.contract.consultingOverrideCents != null,
+  }),
   moneyCol({
     key: "T", group: "Resultado", title: "Resultado", kind: "calc", width: 140, sum: true, hint: "Calculado: N − R + S", num: (x) => x.calc.result,
     tone: (x) => (x.calc.result < 0 ? "text-danger font-medium" : "text-jelly-teal font-medium"),
@@ -163,6 +166,9 @@ const cellDraft = (c: Col, x: X) => (c.draft ? c.draft(x) : cellText(c, x));
 
 type Pos = { row: number; col: number };
 
+/** Linha calculada por objeto de contrato (some sozinho quando o contrato é trocado). */
+const ROW_CACHE = new WeakMap<Contract, X>();
+
 export function SheetTable({ initialRows }: { initialRows: SheetRowData[] }) {
   const [rows, setRows] = useState(initialRows);
   const [q, setQ] = useState("");
@@ -175,8 +181,22 @@ export function SheetTable({ initialRows }: { initialRows: SheetRowData[] }) {
   const [saving, setSaving] = useState(0);
   const [, startTransition] = useTransition();
   const gridRef = useRef<HTMLDivElement>(null);
+  /** Campos com gravação em andamento, por contrato. */
+  const pending = useRef(new Map<string, Map<string, number>>());
 
-  const computed: X[] = useMemo(() => rows.map((r) => ({ ...r, calc: computeContract(r.contract) })), [rows]);
+  // Reaproveita o objeto da linha quando contrato e cliente não mudaram: com o RowView
+  // memorizado, uma edição ou seta redesenha só as linhas afetadas, não as ~1.100 células.
+  const computed: X[] = useMemo(
+    () =>
+      rows.map((r) => {
+        const hit = ROW_CACHE.get(r.contract);
+        if (hit && hit.client === r.client) return hit;
+        const x = { ...r, calc: computeContract(r.contract) };
+        ROW_CACHE.set(r.contract, x);
+        return x;
+      }),
+    [rows],
+  );
 
   const visible = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -195,7 +215,7 @@ export function SheetTable({ initialRows }: { initialRows: SheetRowData[] }) {
 
   // Busca/filtros mudam quais linhas aparecem em `visible` — a célula selecionada
   // (índice nesse array) apontaria para outra linha se não for limpa quando mudam.
-  const filterKey = `${q} ${sector} ${modality} ${only}`;
+  const filterKey = `${q}|${sector}|${modality}|${only}`;
   const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
   if (filterKey !== prevFilterKey) {
     setPrevFilterKey(filterKey);
@@ -221,32 +241,62 @@ export function SheetTable({ initialRows }: { initialRows: SheetRowData[] }) {
     const applied = applySheetEdit(x.contract, field, parsed.value);
     if (!applied.ok) return void toast.error(applied.message);
 
-    const snapshot = rows;
     const { contract: cp, client: clp } = applied.value;
-    setRows((rs) =>
-      rs.map((r) => ({
-        contract: r.contract.id === x.contract.id ? { ...r.contract, ...cp } : r.contract,
-        client: r.client.id === x.client.id ? { ...r.client, ...clp } : r.client,
-      })),
-    );
+    // Valores anteriores só dos campos tocados — para desfazer apenas esta edição se falhar.
+    const prevC = Object.fromEntries(Object.keys(cp).map((k) => [k, (x.contract as Record<string, unknown>)[k]])) as Partial<Contract>;
+    const prevCl = Object.fromEntries(Object.keys(clp).map((k) => [k, (x.client as Record<string, unknown>)[k]])) as Partial<Client>;
+    const cid = x.contract.id;
+    const clid = x.client.id;
+    const apply = (c: Partial<Contract>, cl: Partial<Client>) =>
+      setRows((rs) =>
+        rs.map((r) =>
+          r.contract.id === cid || r.client.id === clid
+            ? {
+                contract: r.contract.id === cid && Object.keys(c).length ? { ...r.contract, ...c } : r.contract,
+                client: r.client.id === clid && Object.keys(cl).length ? { ...r.client, ...cl } : r.client,
+              }
+            : r,
+        ),
+      );
+    apply(cp, clp);
+
+    const mine = Object.keys(cp);
+    const pend = pending.current.get(cid) ?? new Map<string, number>();
+    for (const k of mine) pend.set(k, (pend.get(k) ?? 0) + 1);
+    pending.current.set(cid, pend);
+    const release = () => {
+      for (const k of mine) {
+        const n = (pend.get(k) ?? 1) - 1;
+        if (n <= 0) pend.delete(k);
+        else pend.set(k, n);
+      }
+    };
 
     setSaving((n) => n + 1);
     startTransition(async () => {
       try {
-        const res = await updateSheetCell(x.contract.id, field, raw);
+        const res = await updateSheetCell(cid, field, raw);
+        release();
         if (!res.ok) {
-          setRows(snapshot);
+          apply(prevC, prevCl);
           toast.error(res.message);
           return;
         }
+        // Usa o que o servidor gravou, mas mantém campos com outra edição ainda a caminho.
         setRows((rs) =>
-          rs.map((r) => ({
-            contract: r.contract.id === res.contract.id ? res.contract : r.contract,
-            client: r.client.id === res.client.id ? res.client : r.client,
-          })),
+          rs.map((r) => {
+            if (r.contract.id !== cid && r.client.id !== res.client.id) return r;
+            let contract = r.contract;
+            if (r.contract.id === cid) {
+              const keep = Object.fromEntries([...pend.keys()].map((k) => [k, (r.contract as Record<string, unknown>)[k]]));
+              contract = { ...res.contract, ...keep };
+            }
+            return { contract, client: r.client.id === res.client.id ? res.client : r.client };
+          }),
         );
       } catch {
-        setRows(snapshot);
+        release();
+        apply(prevC, prevCl);
         toast.error("Não foi possível salvar. Verifique a conexão.");
       } finally {
         setSaving((n) => n - 1);
@@ -269,6 +319,13 @@ export function SheetTable({ initialRows }: { initialRows: SheetRowData[] }) {
     if (nav) setActive(clamp({ row: pos.row + nav[0], col: pos.col + nav[1] }));
     if (nav || value === null) gridRef.current?.focus({ preventScroll: true });
   }
+
+  const handlers = useRef({ startEdit, finishEdit });
+  useLayoutEffect(() => {
+    handlers.current = { startEdit, finishEdit };
+  });
+  const onEdit = useCallback((pos: Pos) => handlers.current.startEdit(pos), []);
+  const onFinish = useCallback((pos: Pos, value: string | null, nav?: [number, number]) => handlers.current.finishEdit(pos, value, nav), []);
 
   useEffect(() => {
     if (!active) return;
@@ -459,8 +516,8 @@ export function SheetTable({ initialRows }: { initialRows: SheetRowData[] }) {
                 activeCol={active?.row === ri ? active.col : null}
                 editing={editing?.pos.row === ri ? editing : null}
                 onSelect={setActive}
-                onEdit={startEdit}
-                onFinish={finishEdit}
+                onEdit={onEdit}
+                onFinish={onFinish}
               />
             ))}
           </tbody>
@@ -493,7 +550,7 @@ function Kbd({ children }: { children: React.ReactNode }) {
   return <kbd className="rounded border border-white/10 px-1 font-sans">{children}</kbd>;
 }
 
-function RowView({
+const RowView = memo(function RowView({
   x,
   ri,
   divider,
@@ -574,7 +631,7 @@ function RowView({
       </tr>
     </>
   );
-}
+});
 
 /** Editor da célula. Garante um único "fim" (Enter, Tab, Esc ou clique fora). */
 function Editor({ col, initial, onFinish }: { col: Col; initial: string; onFinish: (value: string | null, nav?: [number, number]) => void }) {

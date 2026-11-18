@@ -14,19 +14,38 @@ export const money = (cents: number) => brl.format(cents / 100);
 export const moneyCompact = (cents: number) => brlCompact.format(cents / 100);
 export const percent = (fraction: number | null) => (fraction === null ? "—" : pct.format(fraction));
 
-/** "1.234,56" | "1234.56" | "R$ 1.234" → centavos. Retorna null se inválido. */
-export function parseMoneyToCents(input: string): number | null {
+/**
+ * Texto digitado → número decimal. Entende o padrão brasileiro e o americano:
+ * "1.234,56" · "1234,56" · "1234.56" · "1,234.56" · "5,4321" · "5.4321" · "1.000" (mil).
+ * O separador que aparece por último é o decimal; um único ponto seguido de
+ * exatamente 3 dígitos (sem vírgula) é milhar ("1.000"). Retorna null se inválido.
+ */
+export function parseDecimal(input: string): number | null {
   const raw = input.replace(/[^\d,.-]/g, "").trim();
-  if (!raw) return null;
-  // Padrão BR: ponto é milhar, vírgula é decimal. Se não houver vírgula,
-  // um único ponto seguido de 1–2 dígitos é tratado como decimal.
+  if (!raw || raw === "-") return null;
+  const lastComma = raw.lastIndexOf(",");
+  const lastDot = raw.lastIndexOf(".");
   let normalized: string;
-  if (raw.includes(",")) normalized = raw.replace(/\./g, "").replace(",", ".");
-  else if (/^\d+\.\d{1,2}$/.test(raw)) normalized = raw;
-  else normalized = raw.replace(/\./g, "");
+  if (lastComma >= 0 && lastDot >= 0) {
+    // os dois presentes: o último é o decimal
+    normalized = lastComma > lastDot ? raw.replace(/\./g, "").replace(",", ".") : raw.replace(/,/g, "");
+  } else if (lastComma >= 0) {
+    // só vírgula: uma = decimal; várias = milhar ("1,234,567")
+    normalized = (raw.match(/,/g) ?? []).length > 1 ? raw.replace(/,/g, "") : raw.replace(",", ".");
+  } else if (lastDot >= 0) {
+    // só ponto: vários = milhar; um com 3 dígitos depois = milhar; senão decimal
+    const dots = (raw.match(/\./g) ?? []).length;
+    normalized = dots > 1 || /^-?\d{1,3}\.\d{3}$/.test(raw) ? raw.replace(/\./g, "") : raw;
+  } else normalized = raw;
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return null;
   const n = Number(normalized);
-  if (!Number.isFinite(n)) return null;
-  return Math.round(n * 100);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** "1.234,56" | "1234.56" | "R$ 1.234" → centavos (inteiro). Retorna null se inválido. */
+export function parseMoneyToCents(input: string): number | null {
+  const n = parseDecimal(input);
+  return n === null ? null : Math.round(n * 100);
 }
 
 /** Centavos → "1.234,56" (para preencher inputs). */
@@ -35,7 +54,11 @@ export const centsToInput = (cents: number) =>
 
 export const date = (iso: string) => format(parse(iso.slice(0, 10), "yyyy-MM-dd", new Date()), "dd/MM/yyyy");
 
-export const dateTime = (iso: string) => format(new Date(iso), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
+const TZ = "America/Sao_Paulo";
+const dateTimeFmt = new Intl.DateTimeFormat("pt-BR", { timeZone: TZ, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+/** Data e hora sempre no horário de Brasília (o servidor pode estar em UTC). */
+export const dateTime = (iso: string) => dateTimeFmt.format(new Date(iso)).replace(", ", " às ");
 
 /** "2026-11" → "novembro de 2026" */
 export const monthLabel = (month: string) =>
@@ -49,8 +72,12 @@ export const monthTitle = (month: string) => {
 
 export const monthShort = (month: string) => format(parse(month, "yyyy-MM", new Date()), "MMM/yy", { locale: ptBR });
 
-export const currentMonth = () => format(new Date(), "yyyy-MM");
-export const today = () => format(new Date(), "yyyy-MM-dd");
+/** "AAAA-MM-DD" de hoje no horário de Brasília. */
+export const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+export const currentMonth = () => today().slice(0, 7);
+
+/** "AAAA-MM" com mês 01–12. */
+export const isValidMonth = (m: unknown): m is string => typeof m === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(m);
 
 export function fileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;

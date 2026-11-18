@@ -142,6 +142,7 @@ export const contractSchema = z
       licenseTotalOverrideCents: d.licenseTotalOverride,
       supportCents: d.support ?? 0,
       trainingCents: d.hasTraining ? (d.training ?? 0) : 0,
+      consultingOverrideCents: null,
       action: d.action,
       billingStatus: d.billingStatus,
       licenseStatus: d.licenseStatus,
@@ -170,7 +171,7 @@ export const invoiceSchema = z.object({
 });
 
 export const goalSchema = z.object({
-  month: z.string().regex(/^\d{4}-\d{2}$/, "Mês inválido"),
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Mês inválido"),
   target: money("O valor da meta"),
 });
 

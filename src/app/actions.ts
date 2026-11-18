@@ -8,7 +8,7 @@ import { db } from "@/lib/db";
 import { clients, contractVersions, contracts, files, goals, invoices, type Client, type Contract, type ContractKind } from "@/lib/db/schema";
 import { applySheetEdit, isSheetField, parseSheetValue, SHEET_FIELDS } from "@/lib/sheet-edit";
 import { money } from "@/lib/format";
-import { saveFile, validateUpload } from "@/lib/storage";
+import { deleteStoredFile, saveFile, validateUpload } from "@/lib/storage";
 import {
   clientSchema,
   contractSchema,
@@ -46,6 +46,38 @@ async function storeUpload(
     .values({ clientId, contractId: contractId ?? null, kind, name: file.name, mimeType: file.type, size: file.size, storageKey, uploadedBy: userId })
     .returning();
   return row;
+}
+
+/**
+ * Aplica uma alteração campo a campo num contrato, gravando a versão no histórico.
+ * Se outra gravação acontecer ao mesmo tempo (inclusive edições rápidas do próprio
+ * usuário), relê o contrato e reaplica — cada alteração mexe só nos seus campos.
+ */
+async function patchContract(
+  contractId: string,
+  userId: string,
+  build: (current: Contract) => { patch: Partial<Contract>; reason: string } | { error: string },
+): Promise<{ ok: true; contract: Contract } | { ok: false; message: string }> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const current = await db.query.contracts.findFirst({ where: eq(contracts.id, contractId) });
+    if (!current) return { ok: false, message: "Contrato não encontrado." };
+    const b = build(current);
+    if ("error" in b) return { ok: false, message: b.error };
+    const next = current.version + 1;
+    try {
+      await db.batch([
+        db.insert(contractVersions).values({ contractId, version: next, snapshot: b.patch, reason: b.reason, createdBy: userId }),
+        db
+          .update(contracts)
+          .set({ ...b.patch, version: next, updatedAt: new Date().toISOString() })
+          .where(and(eq(contracts.id, contractId), eq(contracts.version, current.version))),
+      ]);
+      return { ok: true, contract: { ...current, ...b.patch, version: next } };
+    } catch {
+      // versão disputada: tenta de novo sobre o estado mais recente
+    }
+  }
+  return { ok: false, message: "Muitas alterações ao mesmo tempo neste contrato. Tente de novo." };
 }
 
 function revalidateAll(clientId?: string) {
@@ -163,22 +195,12 @@ export async function addReceipt(contractId: string, _: ActionState, fd: FormDat
   const user = await requireUser();
   const amount = parseMoneyToCents(String(fd.get("amount") ?? ""));
   if (!amount || amount <= 0) return invalid(fd, { amount: ["Informe o valor recebido"] });
-  const current = await db.query.contracts.findFirst({ where: eq(contracts.id, contractId) });
-  if (!current) return { ok: false, message: "Contrato não encontrado." };
-
-  const next = current.version + 1;
-  const receivedCents = current.receivedCents + amount;
-  await db.batch([
-    db.insert(contractVersions).values({
-      contractId,
-      version: next,
-      snapshot: { receivedCents },
-      reason: `Recebimento de ${money(amount)}`,
-      createdBy: user.id,
-    }),
-    db.update(contracts).set({ receivedCents, version: next, updatedAt: new Date().toISOString() }).where(eq(contracts.id, contractId)),
-  ]);
-  revalidateAll(current.clientId);
+  const res = await patchContract(contractId, user.id, (current) => ({
+    patch: { receivedCents: current.receivedCents + amount },
+    reason: `Recebimento de ${money(amount)}`,
+  }));
+  if (!res.ok) return { ok: false, message: res.message };
+  revalidateAll(res.contract.clientId);
   return { ok: true, message: "Recebimento registrado. Saldo recalculado." };
 }
 
@@ -192,7 +214,9 @@ export async function deleteContract(contractId: string) {
 
 export async function deleteClient(clientId: string) {
   await requireUser();
+  const stored = await db.select({ key: files.storageKey }).from(files).where(eq(files.clientId, clientId));
   await db.delete(clients).where(eq(clients.id, clientId));
+  await Promise.allSettled(stored.map((f) => deleteStoredFile(f.key)));
   revalidateAll();
   redirect("/clientes");
 }
@@ -258,46 +282,31 @@ export async function updateSheetCell(contractId: string, field: string, raw: st
 
   const parsed = parseSheetValue(field, raw);
   if (!parsed.ok) return parsed;
-  const applied = applySheetEdit(contract, field, parsed.value);
-  if (!applied.ok) return applied;
-  const { contract: cPatch, client: clPatch } = applied.value;
-  const now = new Date().toISOString();
   const spec = SHEET_FIELDS[field];
+  const now = new Date().toISOString();
 
-  if (Object.keys(clPatch).length) {
-    await db.update(clients).set({ ...clPatch, updatedAt: now }).where(eq(clients.id, contract.clientId));
-  }
-  if (Object.keys(cPatch).length) {
-    const next = contract.version + 1;
+  if (spec.target === "client") {
+    await db.update(clients).set({ [field]: parsed.value, updatedAt: now }).where(eq(clients.id, contract.clientId));
+  } else {
     const fmt = (v: unknown) => (v === null || v === undefined || v === "" ? "fórmula/vazio" : spec.kind === "money" ? money(Number(v)) : String(v));
-    const before = field === "consulting" ? null : (contract as Record<string, unknown>)[field];
-    try {
-      await db.batch([
-        db.insert(contractVersions).values({
-          contractId,
-          version: next,
-          snapshot: cPatch,
-          reason: `Planilha · ${spec.col} ${spec.label}: ${field === "consulting" ? "" : `${fmt(before)} → `}${fmt(parsed.value)}`,
-          createdBy: user.id,
-        }),
-        db
-          .update(contracts)
-          .set({ ...cPatch, version: next, updatedAt: now })
-          .where(and(eq(contracts.id, contractId), eq(contracts.version, contract.version))),
-      ]);
-    } catch {
-      return { ok: false, message: "O contrato foi alterado por outra pessoa. Recarregue e tente de novo." };
-    }
+    const res = await patchContract(contractId, user.id, (current) => {
+      const applied = applySheetEdit(current, field, parsed.value);
+      if (!applied.ok) return { error: applied.message };
+      const before = field === "consulting" ? null : (current as Record<string, unknown>)[field];
+      return {
+        patch: applied.value.contract,
+        reason: `Planilha · ${spec.col} ${spec.label}: ${field === "consulting" ? "" : `${fmt(before)} → `}${fmt(parsed.value)}`,
+      };
+    });
+    if (!res.ok) return res;
   }
 
   const [fresh, freshClient] = await Promise.all([
     db.query.contracts.findFirst({ where: eq(contracts.id, contractId) }),
     db.query.clients.findFirst({ where: eq(clients.id, contract.clientId) }),
   ]);
-  revalidatePath("/");
-  revalidatePath("/clientes");
-  revalidatePath("/metas");
-  revalidatePath(`/clientes/${contract.clientId}`);
+  // Sem revalidatePath: todas as telas são dinâmicas (leem a sessão) e buscam dados novos
+  // ao navegar; revalidar aqui faria o servidor renderizar a Planilha inteira a cada célula.
   return { ok: true, contract: fresh!, client: freshClient! };
 }
 

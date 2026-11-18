@@ -48,10 +48,32 @@ describe("edição na planilha", () => {
     assert.equal(edit("taxOverrideCents", "").taxOverrideCents, null);
   });
 
-  it("S (consultoria) vira suporte mensal", () => {
-    const c = edit("consulting", "6.000,00");
-    assert.equal(c.supportCents, 500_00);
-    assert.equal(computeContract(c).consulting, 6_000_00);
+  it("S digitado vira ajuste exato, sem perder centavos", () => {
+    const c = edit("consulting", "1.000,00");
+    assert.equal(c.consultingOverrideCents, 1_000_00);
+    assert.equal(c.supportCents, 300_00); // suporte não muda
+    assert.equal(computeContract(c).consulting, 1_000_00);
+    assert.ok(Math.abs(computeContract(c).goalContribution - 1_000_00 / 12) < 1e-9);
+  });
+
+  it("S igual à fórmula (ou vazio) volta à fórmula", () => {
+    assert.equal(edit("consulting", "3.600,00").consultingOverrideCents, null);
+    assert.equal(edit("consulting", "").consultingOverrideCents, null);
+  });
+
+  it("parcelas (Z) não aceita 0", () => {
+    assert.equal(parseSheetValue("installments", "0").ok, false);
+    assert.equal(parseSheetValue("installments", "1").ok, true);
+  });
+
+  it("trocar modalidade com S que não divide por 12 preserva S exato", () => {
+    const anual = { ...contract, paymentType: "anual", supportCents: 1_000_00 } as Contract;
+    const p = parseSheetValue("paymentType", "mensal");
+    assert.ok(p.ok);
+    const a = applySheetEdit(anual, "paymentType", p.value);
+    assert.ok(a.ok);
+    const c = { ...anual, ...a.value.contract } as Contract;
+    assert.equal(computeContract(c).consulting, 1_000_00);
   });
 
   it("trocar modalidade preserva a consultoria anual", () => {

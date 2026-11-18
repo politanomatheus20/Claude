@@ -84,7 +84,7 @@ export function FileDrop({ name, label, error }: { name: string; label: string; 
             <Upload className="size-5 shrink-0 text-mist/40" />
             <span className="text-sm text-mist/55">
               Arraste o arquivo ou <span className="text-jelly-teal">clique para escolher</span>
-              <span className="block text-xs text-mist/35">PDF, imagem ou Office · até 10 MB</span>
+              <span className="block text-xs text-mist/35">PDF, imagem ou Office · até 4 MB</span>
             </span>
           </>
         )}

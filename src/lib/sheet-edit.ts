@@ -4,7 +4,7 @@
  * Módulo PURO, usado no navegador (recalculo instantâneo) e no servidor (gravação),
  * para que os dois apliquem exatamente a mesma regra.
  */
-import { annualSupport } from "./calc";
+import { annualSupport, consulting } from "./calc";
 import {
   BILLING_STATUS,
   LICENSE_STATUS,
@@ -48,7 +48,7 @@ export const SHEET_FIELDS = {
   claudeAnnualOverrideCents: { col: "P", label: "Valor licença anual", target: "contract", kind: "money", formula: "O × 12" },
   iofOverrideCents: { col: "Q", label: "IOF", target: "contract", kind: "money", formula: "P × 3,5%" },
   licenseTotalOverrideCents: { col: "R", label: "Total licença", target: "contract", kind: "money", formula: "P + Q" },
-  consulting: { col: "S", label: "Consultoria", target: "contract", kind: "money", zeroIfEmpty: true },
+  consulting: { col: "S", label: "Consultoria", target: "contract", kind: "money", formula: "suporte no ano + treinamento" },
   action: { col: "U", label: "Ação", target: "contract", kind: "text" },
   billingStatus: { col: "V", label: "Faturamento", target: "contract", kind: "enum", options: BILLING_STATUS },
   licenseStatus: { col: "W", label: "Licenças", target: "contract", kind: "enum", options: LICENSE_STATUS },
@@ -86,7 +86,11 @@ export function parseSheetValue(field: SheetField, raw: string): Result<SheetVal
       return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) ? { ok: true, value: s } : { ok: false, message: "E-mail inválido." };
     case "int": {
       const n = Number(s);
-      return Number.isInteger(n) && n >= 0 ? { ok: true, value: n } : { ok: false, message: `${spec.label}: use um número inteiro.` };
+      const min = field === "installments" ? 1 : 0;
+      if (!Number.isInteger(n) || n < min) {
+        return { ok: false, message: min ? `${spec.label}: mínimo 1.` : `${spec.label}: use um número inteiro.` };
+      }
+      return { ok: true, value: n };
     }
     case "money": {
       const c = parseMoneyToCents(s);
@@ -132,15 +136,19 @@ export function applySheetEdit(contract: Contract, field: SheetField, value: She
       break;
     }
     case "consulting": {
-      const yearly = (value as number) - contract.trainingCents;
-      if (yearly < 0) return { ok: false, message: "Consultoria menor que o treinamento já lançado." };
-      patch.supportCents = contract.paymentType === "anual" ? yearly : Math.round(yearly / 12);
+      // Vazio volta à fórmula; valor igual à fórmula também. Senão vira ajuste exato (sem perder centavos).
+      const formula = annualSupport(contract) + contract.trainingCents;
+      patch.consultingOverrideCents = value === null || value === formula ? null : (value as number);
       break;
     }
     case "paymentType": {
+      // Troca a modalidade preservando a consultoria anual (S) exatamente.
+      const s = consulting(contract);
       const yearly = annualSupport(contract);
+      const support = value === "anual" ? yearly : yearly / 12;
       patch.paymentType = value as Contract["paymentType"];
-      patch.supportCents = value === "anual" ? yearly : Math.round(yearly / 12);
+      patch.supportCents = Math.round(support);
+      if (!Number.isInteger(support)) patch.consultingOverrideCents = s;
       break;
     }
     default:

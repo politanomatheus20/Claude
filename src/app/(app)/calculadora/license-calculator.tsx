@@ -15,7 +15,7 @@ import {
 import { Stat } from "@/components/page-header";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { centsToInput, money, parseMoneyToCents, percent } from "@/lib/format";
+import { centsToInput, money, parseDecimal, parseMoneyToCents, percent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type Mode = "mensal" | "anual";
@@ -43,6 +43,8 @@ const emptyRow = (ref: LicenseReference): RowInputs => ({
 });
 
 const toCents = (v: string) => parseMoneyToCents(v) ?? 0;
+/** Câmbio aceita até 4 casas (ex.: 5,4321) — sem arredondar para centavos. */
+const toFxCents = (v: string) => (parseDecimal(v) ?? 0) * 100;
 /** Campos de ajuste manual: vazio = sem ajuste (usa a fórmula). */
 const toOverrideCents = (v: string) => (v.trim() === "" ? null : parseMoneyToCents(v));
 const toInt = (v: string) => {
@@ -80,7 +82,7 @@ export function LicenseCalculator() {
           {
             name: MONTHLY_LICENSE_REFERENCE[i].name,
             usdCostCents: toCents(r.usdCost),
-            fxRateCents: toCents(r.fxRate),
+            fxRateCents: toFxCents(r.fxRate),
             quantity: toInt(r.quantity),
             unitPriceCents: toCents(r.unitPrice),
             licenseCostOverrideCents: toOverrideCents(r.licenseCostOverride),
@@ -98,7 +100,7 @@ export function LicenseCalculator() {
         computeAnnualLicenseRow({
           name: ANNUAL_LICENSE_REFERENCE[i].name,
           usdCostCents: toCents(r.usdCost),
-          fxRateCents: toCents(r.fxRate),
+          fxRateCents: toFxCents(r.fxRate),
           quantity: toInt(r.quantity),
           months: toInt(r.months) || 12,
           unitPriceCents: toCents(r.unitPrice),

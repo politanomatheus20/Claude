@@ -273,3 +273,29 @@ describe("calculadora de licenças — anual", () => {
     close(totals.margin!, totals.resultCents / totals.clientAnnualCents);
   });
 });
+
+describe("leitura de números digitados", () => {
+  it("formatos brasileiro e americano", async () => {
+    const { parseDecimal, parseMoneyToCents } = await import("./format");
+    assert.equal(parseMoneyToCents("R$ 1.234,56"), 123456);
+    assert.equal(parseMoneyToCents("1234,56"), 123456);
+    assert.equal(parseMoneyToCents("1234.56"), 123456);
+    assert.equal(parseMoneyToCents("1,234.56"), 123456);
+    assert.equal(parseMoneyToCents("1.000"), 100000);
+    assert.equal(parseMoneyToCents("1.000.000"), 100000000);
+    assert.equal(parseDecimal("5,4321"), 5.4321);
+    assert.equal(parseDecimal("5.4321"), 5.4321);
+    assert.equal(parseMoneyToCents("abc"), null);
+    assert.equal(parseMoneyToCents("1.2.3,4,5"), null);
+  });
+});
+
+describe("datas no horário de Brasília", () => {
+  it("today() e currentMonth() no formato certo", async () => {
+    const { today, currentMonth, isValidMonth } = await import("./format");
+    assert.match(today(), /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal(currentMonth(), today().slice(0, 7));
+    assert.equal(isValidMonth("2026-13"), false);
+    assert.equal(isValidMonth("2026-12"), true);
+  });
+});

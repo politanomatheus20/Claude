@@ -41,6 +41,8 @@ export interface ContractValues {
   licenseTotalOverrideCents: number | null;
   supportCents: number;
   trainingCents: number;
+  /** S digitado à mão (ex.: na Planilha). Vazio = suporte no ano + treinamento. */
+  consultingOverrideCents?: number | null;
   installments: number | null;
   installmentOverrideCents: number | null;
   receivedCents: number;
@@ -82,15 +84,15 @@ export const annualSupport = (c: Pick<ContractValues, "paymentType" | "supportCe
 export const monthlyTraining = (c: Pick<ContractValues, "trainingCents">) => c.trainingCents / MONTHS;
 
 /** S — Consultoria (suporte no ano + treinamento). */
-export const consulting = (c: Pick<ContractValues, "paymentType" | "supportCents" | "trainingCents">) =>
-  annualSupport(c) + c.trainingCents;
+export const consulting = (c: Pick<ContractValues, "paymentType" | "supportCents" | "trainingCents" | "consultingOverrideCents">) =>
+  c.consultingOverrideCents ?? annualSupport(c) + c.trainingCents;
 
 /** T — Resultado = N − R + S. */
 export const result = (c: ContractValues) => netValue(c) - licenseTotal(c) + consulting(c);
 
-/** Quanto o contrato soma na meta mensal (suporte/mês + treinamento ÷ 12 = S ÷ 12). */
-export const goalContribution = (c: Pick<ContractValues, "paymentType" | "supportCents" | "trainingCents">) =>
-  monthlySupport(c) + monthlyTraining(c);
+/** Quanto o contrato soma na meta mensal: S ÷ 12 (= suporte/mês + treinamento ÷ 12). */
+export const goalContribution = (c: Pick<ContractValues, "paymentType" | "supportCents" | "trainingCents" | "consultingOverrideCents">) =>
+  c.consultingOverrideCents != null ? c.consultingOverrideCents / MONTHS : monthlySupport(c) + monthlyTraining(c);
 
 /** Z — Nº de parcelas. */
 export const installmentsOf = (c: Pick<ContractValues, "installments" | "paymentType">) =>
@@ -103,17 +105,27 @@ export const installmentValue = (c: ContractValues) =>
 /** AC — Saldo a receber. */
 export const balanceDue = (c: ContractValues) => installmentValue(c) * installmentsOf(c) - c.receivedCents;
 
+/** Data de hoje no fuso de Brasília (o servidor pode estar em UTC). */
+export function todayInBrazil(): { y: number; m: number; d: number } {
+  const [y, m, d] = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" })
+    .format(new Date())
+    .split("-")
+    .map(Number);
+  return { y, m, d };
+}
+
 /** AE — Dias até vencer (null sem data de fim). */
-export function daysToExpire(c: Pick<ContractValues, "endAt">, today = new Date()): number | null {
+export function daysToExpire(c: Pick<ContractValues, "endAt">, today?: Date): number | null {
   if (!c.endAt) return null;
   const end = Date.UTC(+c.endAt.slice(0, 4), +c.endAt.slice(5, 7) - 1, +c.endAt.slice(8, 10));
-  const now = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  const t = today ? { y: today.getFullYear(), m: today.getMonth() + 1, d: today.getDate() } : todayInBrazil();
+  const now = Date.UTC(t.y, t.m - 1, t.d);
   return Math.round((end - now) / 86_400_000);
 }
 
 export type TermStatus = "ativo" | "a_vencer" | "vencido" | "sem_data";
 /** AD — Situação da vigência (a vencer = 60 dias ou menos). */
-export function termStatus(c: Pick<ContractValues, "endAt">, today = new Date()): TermStatus {
+export function termStatus(c: Pick<ContractValues, "endAt">, today?: Date): TermStatus {
   const d = daysToExpire(c, today);
   if (d === null) return "sem_data";
   if (d < 0) return "vencido";
@@ -127,7 +139,7 @@ export const financialStatus = (c: ContractValues): FinancialStatus =>
   balanceDue(c) > 0.5 ? "a_receber" : "recebido";
 
 /** Todas as colunas calculadas de um contrato, de uma vez. */
-export function computeContract(c: ContractValues, today = new Date()) {
+export function computeContract(c: ContractValues, today?: Date) {
   const L = annualValue(c);
   const T = result(c);
   return {

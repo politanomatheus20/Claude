@@ -7,7 +7,7 @@ import { PageHeader, Stat } from "@/components/page-header";
 import { Badge, Card, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getDashboard } from "@/lib/data";
-import { currentMonth, date, money, monthLabel, monthShort, monthTitle, percent } from "@/lib/format";
+import { currentMonth, date, isValidMonth, money, monthLabel, monthShort, monthTitle, percent } from "@/lib/format";
 import { billingLabel, licenseLabel, termLabel } from "@/lib/labels";
 import { GoalForm } from "./metas/goal-form";
 
@@ -15,7 +15,7 @@ export const metadata: Metadata = { title: "Painel" };
 
 export default async function DashboardPage({ searchParams }: PageProps<"/">) {
   const { mes } = await searchParams;
-  const month = typeof mes === "string" && /^\d{4}-\d{2}$/.test(mes) ? mes : currentMonth();
+  const month = isValidMonth(mes) ? mes : currentMonth();
   const data = await getDashboard(month);
   const monthName = monthLabel(month).split(" de ")[0];
   const t = data.monthTotals;

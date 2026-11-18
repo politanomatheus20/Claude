@@ -1,0 +1,1 @@
+ALTER TABLE `contracts` ADD `consulting_override_cents` integer;
