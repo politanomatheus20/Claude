@@ -18,6 +18,7 @@ Sistema interno que substitui a planilha de controle de clientes fechados da ope
 | **Financeiro** | Parcelas, valor por parcela, recebimentos (botão *Recebimento*), saldo a receber e situação financeira. |
 | **Invoices e anexos** | Invoices para conferir o custo previsto (coluna R) e anexos de propostas, com download autenticado. |
 | **Metas** | Define/edita a meta de cada mês e mostra o histórico atingido x meta. |
+| **Calculadora** | Simulador de proposta de licenças de IA (Claude Team Standard/Premium, ChatGPT Business), abas **Mensal** e **Anual** — réplica de `Calculadora_De_Licencas.xlsx`: custo em dólar → custo em reais (c/ IOF) → preço ao cliente → imposto, resultado e margem. Ao lado, **tabela de apoio** com o preço de referência (zero margem) e a sugestão com margem; botão *Usar* aplica o valor direto na calculadora. Ferramenta de simulação — não grava nada no banco. |
 
 ## 🧮 Regras de cálculo (= planilha)
 
@@ -89,7 +90,8 @@ src/
 │  │  ├─ page.tsx              # Painel
 │  │  ├─ clientes/             # lista, novo, detalhe ([id]), campos de cliente e contrato
 │  │  ├─ planilha/             # visão com todas as colunas A → AJ
-│  │  └─ metas/                # metas mensais
+│  │  ├─ metas/                # metas mensais
+│  │  └─ calculadora/          # simulador de proposta de licenças (mensal/anual)
 │  ├─ files/[id]/route.ts      # download autenticado de anexos
 │  └─ actions.ts               # todas as mutações (Server Actions)
 ├─ components/                 # barra de meta, tentáculos, água-viva, UI base
@@ -150,6 +152,16 @@ npm run dev                    # http://localhost:3000
 - [ ] Linhas da seção **Atualização** (Grupasso, ENW, Nutrimental) repetem o valor mensal do contrato original com quantidade menor — conferir se os valores estão certos na planilha.
 - [ ] Ajustar nomes importados que são códigos (SECOM, Venosan).
 - [ ] ENW, Semantix e SESI não têm data de assinatura: não entram na meta de nenhum mês.
+
+## 📜 Histórico de alterações
+
+- **2026-11-18** — Corrigida condição de corrida na edição da Planilha: `updateSheetCell` agora valida a versão do contrato (como `updateContract` já fazia) e trata o conflito com uma mensagem, em vez de deixar a edição falhar silenciosamente quando duas células da mesma linha eram salvas quase ao mesmo tempo.
+- **2026-11-18** — Corrigida a seleção/edição de célula na Planilha ficando "grudada" no índice errado depois de buscar ou trocar um filtro (podia acabar editando a linha errada).
+- **2026-11-18** — Servidor "aquece" a conexão com o banco assim que sobe (`src/instrumentation.ts`), eliminando a demora da primeira requisição (login/painel) logo após um deploy/restart.
+- **2026-11-18** — Nova **Calculadora** de proposta de licenças (abas Mensal/Anual, réplica de `Calculadora_De_Licencas.xlsx`), com tabela de apoio (preço zero margem / sugestão com margem) ao lado.
+- **2026-11-18** — Corrigido logout ao navegar: o cookie de sessão só usa `Secure` na Vercel (`VERCEL`), não em qualquer `NODE_ENV=production` — evitava que o navegador descartasse o cookie fora de HTTPS.
+- **2026-11-18** — Removido o cursor de texto (I-beam) do título decorativo da tela de login.
+- **2026-11-18** — O vídeo da água-viva do login agora sempre toca, mesmo com "reduzir movimento" ativado no sistema.
 
 ---
 

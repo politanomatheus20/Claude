@@ -193,6 +193,16 @@ export function SheetTable({ initialRows }: { initialRows: SheetRowData[] }) {
   }, [computed, q, sector, modality, only]);
   const firstUpdate = visible.findIndex((x) => x.contract.kind === "atualizacao");
 
+  // Busca/filtros mudam quais linhas aparecem em `visible` — a célula selecionada
+  // (índice nesse array) apontaria para outra linha se não for limpa quando mudam.
+  const filterKey = `${q} ${sector} ${modality} ${only}`;
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
+    setActive(null);
+    setEditing(null);
+  }
+
   const clamp = (p: Pos): Pos => ({
     row: Math.max(0, Math.min(visible.length - 1, p.row)),
     col: Math.max(0, Math.min(ALL.length - 1, p.col)),

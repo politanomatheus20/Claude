@@ -37,7 +37,7 @@ export async function login(_: LoginState, formData: FormData): Promise<LoginSta
   const token = await signSession({ sub: user.id, email: user.email, name: user.name });
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: Boolean(process.env.VERCEL),
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_MAX_AGE,

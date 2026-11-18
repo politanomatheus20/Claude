@@ -271,16 +271,23 @@ export async function updateSheetCell(contractId: string, field: string, raw: st
     const next = contract.version + 1;
     const fmt = (v: unknown) => (v === null || v === undefined || v === "" ? "fórmula/vazio" : spec.kind === "money" ? money(Number(v)) : String(v));
     const before = field === "consulting" ? null : (contract as Record<string, unknown>)[field];
-    await db.batch([
-      db.insert(contractVersions).values({
-        contractId,
-        version: next,
-        snapshot: cPatch,
-        reason: `Planilha · ${spec.col} ${spec.label}: ${field === "consulting" ? "" : `${fmt(before)} → `}${fmt(parsed.value)}`,
-        createdBy: user.id,
-      }),
-      db.update(contracts).set({ ...cPatch, version: next, updatedAt: now }).where(eq(contracts.id, contractId)),
-    ]);
+    try {
+      await db.batch([
+        db.insert(contractVersions).values({
+          contractId,
+          version: next,
+          snapshot: cPatch,
+          reason: `Planilha · ${spec.col} ${spec.label}: ${field === "consulting" ? "" : `${fmt(before)} → `}${fmt(parsed.value)}`,
+          createdBy: user.id,
+        }),
+        db
+          .update(contracts)
+          .set({ ...cPatch, version: next, updatedAt: now })
+          .where(and(eq(contracts.id, contractId), eq(contracts.version, contract.version))),
+      ]);
+    } catch {
+      return { ok: false, message: "O contrato foi alterado por outra pessoa. Recarregue e tente de novo." };
+    }
   }
 
   const [fresh, freshClient] = await Promise.all([

@@ -17,7 +17,7 @@ export default function LoginPage() {
       </header>
 
       <section className="mx-auto flex w-full max-w-[76rem] flex-1 items-center px-6 py-16 sm:px-10">
-        <div className="w-full max-w-md animate-fade-up">
+        <div className="w-full max-w-md animate-fade-up cursor-default select-none">
           <p className="mb-6 flex items-center gap-2 text-xs font-medium tracking-[0.18em] text-jelly-teal uppercase">
             <span className="h-px w-6 bg-jelly-teal/60" />
             Metas · Claude

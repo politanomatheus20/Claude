@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Gauge, Sheet, Target, Users } from "lucide-react";
+import { Calculator, Gauge, Sheet, Target, Users } from "lucide-react";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,7 @@ const items = [
   { href: "/clientes", label: "Clientes", icon: Users, match: (p: string) => p.startsWith("/clientes") },
   { href: "/planilha", label: "Planilha", icon: Sheet, match: (p: string) => p.startsWith("/planilha") },
   { href: "/metas", label: "Metas", icon: Target, match: (p: string) => p.startsWith("/metas") },
+  { href: "/calculadora", label: "Calculadora", icon: Calculator, match: (p: string) => p.startsWith("/calculadora") },
 ] as const;
 
 export function NavLinks() {
