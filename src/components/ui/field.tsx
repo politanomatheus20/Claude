@@ -21,6 +21,33 @@ export function MoneyInput({ className, ...props }: React.ComponentProps<"input"
   );
 }
 
+export function Select({ className, children, ...props }: React.ComponentProps<"select">) {
+  return (
+    <div className="relative">
+      <select
+        className={cn(
+          control,
+          "h-10 cursor-pointer appearance-none pr-9 [&>option]:bg-abyss [&>option]:text-mist",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+      </select>
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 16 16"
+        className="pointer-events-none absolute top-1/2 right-3 size-3.5 -translate-y-1/2 text-mist/40"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      >
+        <path d="m4 6 4 4 4-4" />
+      </svg>
+    </div>
+  );
+}
+
 export function Field({
   label,
   hint,

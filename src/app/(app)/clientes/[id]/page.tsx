@@ -4,11 +4,22 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Download, Eye, FileText } from "lucide-react";
 import { Stat } from "@/components/page-header";
 import { Badge, Card, CardHeader } from "@/components/ui/card";
-import { monthlySupport, monthlyTraining } from "@/lib/calc";
-import { getClient } from "@/lib/data";
-import { date, dateTime, fileSize, money, monthLabel, percent } from "@/lib/format";
+import { IOF_RATE, NF_TAX_RATE } from "@/lib/calc";
+import { getClient, type ContractRow } from "@/lib/data";
+import { date, dateTime, fileSize, money, monthTitle, percent } from "@/lib/format";
+import { billingLabel, financialLabel, licenseLabel, sectorLabel, termLabel } from "@/lib/labels";
 import { cn } from "@/lib/utils";
-import { AddAttachmentDialog, AddInvoiceDialog, DeleteClientButton, EditClientDialog, InvoiceActions, UpdateProposalDialog } from "./client-actions";
+import {
+  AddAttachmentDialog,
+  AddContractDialog,
+  AddInvoiceDialog,
+  DeleteClientButton,
+  DeleteContractButton,
+  EditClientDialog,
+  EditContractDialog,
+  InvoiceActions,
+  ReceiptDialog,
+} from "./client-actions";
 import { NewClientToast } from "./new-client-toast";
 
 export async function generateMetadata({ params }: PageProps<"/clientes/[id]">): Promise<Metadata> {
@@ -17,11 +28,14 @@ export async function generateMetadata({ params }: PageProps<"/clientes/[id]">):
   return { title: data?.client.name ?? "Cliente" };
 }
 
+const pct = (r: number) => `${(r * 100).toLocaleString("pt-BR")}%`;
+
 export default async function ClientPage({ params }: PageProps<"/clientes/[id]">) {
   const { id } = await params;
   const data = await getClient(id);
   if (!data) notFound();
-  const { client, result, contribution, versions, invoices, files } = data;
+  const { client, contracts, totals, versions, invoices, invoicesTotal, files } = data;
+  const contractOptions = contracts.map((c) => ({ id: c.id, label: label(c) }));
 
   return (
     <>
@@ -34,59 +48,50 @@ export default async function ClientPage({ params }: PageProps<"/clientes/[id]">
       <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Badge tone={client.paymentType === "anual" ? "blue" : "neutral"}>{client.paymentType}</Badge>
-            <Badge>Proposta v{client.currentVersion}</Badge>
-            {client.trainingCents > 0 ? <Badge tone="teal">Treinamento liderança</Badge> : null}
+            <Badge tone={client.sector === "governo" ? "blue" : "neutral"}>{sectorLabel[client.sector]}</Badge>
+            <Badge>
+              {contracts.length} {contracts.length === 1 ? "contrato" : "contratos"}
+            </Badge>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-[28px]">{client.name}</h1>
-          <p className="mt-1.5 text-sm text-mist/55">
-            Fechado em {date(client.closedAt)} · conta na meta de{" "}
-            <Link href={`/?mes=${client.closedAt.slice(0, 7)}`} className="text-mist/80 underline decoration-white/20 underline-offset-4 hover:text-jelly-teal">
-              {monthLabel(client.closedAt.slice(0, 7))}
-            </Link>
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight break-words sm:text-[28px]">{client.name}</h1>
+          <p className="mt-1.5 text-sm text-mist/55">{client.document ? `CNPJ ${client.document}` : "CNPJ não informado"}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <EditClientDialog client={client} />
-          <UpdateProposalDialog client={client} />
+          <AddContractDialog clientId={client.id} kind="atualizacao" />
         </div>
       </div>
 
-      <Card className="grid animate-fade-up grid-cols-2 max-lg:[&>*]:border-white/[0.06] max-lg:[&>*:nth-child(-n+2)]:border-b lg:grid-cols-4 lg:divide-x lg:divide-white/[0.06]">
-        <Stat label="Soma na meta / mês" value={<span className="text-jelly-teal">{money(contribution)}</span>} hint="suporte + treinamento ÷ 12" />
-        <Stat label="Receita do contrato" value={money(result.revenueCents)} hint="12 meses" />
-        <Stat label="Custo (invoices)" value={money(result.costCents)} hint={`${invoices.length} ${invoices.length === 1 ? "invoice" : "invoices"}`} />
+      <Card className="grid animate-fade-up grid-cols-2 max-lg:[&>*]:border-white/[0.06] max-lg:[&>*:nth-child(-n+4)]:border-b lg:grid-cols-6 lg:divide-x lg:divide-white/[0.06]">
+        <Stat label="Valor anual (L)" value={money(totals.annual)} />
+        <Stat label="Total licença (R)" value={money(totals.licenseTotal)} />
+        <Stat label="Consultoria (S)" value={money(totals.consulting)} />
         <Stat
-          label="Resultado"
-          value={money(result.resultCents)}
-          hint={`Margem ${percent(result.margin)}`}
-          tone={result.resultCents > 0 ? "positive" : result.resultCents < 0 ? "negative" : undefined}
+          label="Resultado (T)"
+          value={money(totals.result)}
+          hint={`Margem ${percent(totals.annual > 0 ? totals.result / totals.annual : null)}`}
+          tone={totals.result > 0 ? "positive" : totals.result < 0 ? "negative" : undefined}
         />
+        <Stat label="Soma na meta / mês" value={<span className="text-jelly-teal">{money(totals.goalContribution)}</span>} />
+        <Stat label="Saldo a receber (AC)" value={money(totals.balanceDue)} />
       </Card>
+
+      <div className="mt-4 grid grid-cols-1 gap-4">
+        {contracts.length === 0 ? (
+          <Card className="px-5 py-10 text-center text-sm text-mist/45">Nenhum contrato. Registre o primeiro.</Card>
+        ) : (
+          contracts.map((c, i) => <ContractCard key={c.id} c={c} delay={i * 60} />)
+        )}
+      </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="grid min-w-0 grid-cols-1 gap-4">
-          {/* Proposta vigente */}
-          <Card className="animate-fade-up [animation-delay:60ms]">
-            <CardHeader title="Proposta vigente" description={`Versão ${client.currentVersion}`} />
-            <dl className="grid divide-y divide-white/[0.05] text-sm">
-              <Line label={`Licenças ${client.paymentType === "mensal" ? "(mensal)" : "(anual)"}`} value={money(client.licensesCents)} note="Não entra na meta" />
-              <Line
-                label={`Suporte ${client.paymentType === "mensal" ? "(mensal)" : "(anual)"}`}
-                value={money(client.supportCents)}
-                note={client.paymentType === "anual" ? `÷ 12 = ${money(monthlySupport(client))}/mês` : "Entra direto na meta"}
-              />
-              <Line
-                label="Treinamento para liderança"
-                value={client.trainingCents > 0 ? money(client.trainingCents) : "Não contratado"}
-                note={client.trainingCents > 0 ? `÷ 12 = ${money(monthlyTraining(client))}/mês` : undefined}
-              />
-            </dl>
-          </Card>
-
-          {/* Invoices */}
-          <Card className="animate-fade-up [animation-delay:120ms]">
-            <CardHeader title="Invoices" description="Compõem o custo e o resultado do cliente" action={<AddInvoiceDialog clientId={client.id} />} />
+          <Card className="animate-fade-up">
+            <CardHeader
+              title="Invoices"
+              description={`Lançado ${money(invoicesTotal)} · custo previsto (R) ${money(totals.licenseTotal)}`}
+              action={<AddInvoiceDialog clientId={client.id} contracts={contractOptions} />}
+            />
             {invoices.length === 0 ? (
               <p className="px-5 py-10 text-center text-sm text-mist/45">Nenhuma invoice registrada.</p>
             ) : (
@@ -118,13 +123,7 @@ export default async function ClientPage({ params }: PageProps<"/clientes/[id]">
                         <td className="px-5 py-3">
                           <div className="flex items-center justify-end gap-1">
                             {inv.file ? (
-                              <a
-                                href={`/files/${inv.file.id}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex size-8 items-center justify-center rounded-md text-mist/50 hover:bg-white/5 hover:text-mist"
-                                title="Ver anexo"
-                              >
+                              <a href={`/files/${inv.file.id}`} target="_blank" rel="noreferrer" className="flex size-8 items-center justify-center rounded-md text-mist/50 hover:bg-white/5 hover:text-mist" title="Ver anexo">
                                 <FileText className="size-4" />
                               </a>
                             ) : null}
@@ -139,46 +138,23 @@ export default async function ClientPage({ params }: PageProps<"/clientes/[id]">
             )}
           </Card>
 
-          {client.notes ? (
-            <Card className="animate-fade-up [animation-delay:180ms]">
-              <CardHeader title="Observações" />
-              <p className="px-5 py-4 text-sm leading-relaxed whitespace-pre-line text-mist/75">{client.notes}</p>
-            </Card>
-          ) : null}
-        </div>
-
-        <div className="grid h-fit min-w-0 grid-cols-1 gap-4">
-          {/* Histórico */}
-          <Card className="animate-fade-up [animation-delay:90ms]">
-            <CardHeader title="Histórico da proposta" />
-            <ol className="relative px-5 py-5">
-              {versions.map((v, i) => {
-                const prev = versions[i + 1];
-                const delta = prev ? v.contribution - prev.contribution : null;
-                return (
-                  <li key={v.id} className="relative pb-6 pl-6 last:pb-0">
+          <Card className="animate-fade-up">
+            <CardHeader title="Histórico" description="Cada atualização gera uma versão" />
+            {versions.length === 0 ? (
+              <p className="px-5 py-8 text-center text-sm text-mist/45">Sem histórico.</p>
+            ) : (
+              <ol className="relative px-5 py-5">
+                {versions.map((v, i) => (
+                  <li key={v.id} className="relative pb-5 pl-6 last:pb-0">
                     {i < versions.length - 1 ? <span className="absolute top-3 bottom-0 left-[5px] w-px bg-white/10" aria-hidden="true" /> : null}
-                    <span
-                      className={cn(
-                        "absolute top-1.5 left-0 size-[11px] rounded-full border-2",
-                        i === 0 ? "border-jelly-teal bg-jelly-teal/30" : "border-white/25 bg-abyss",
-                      )}
-                      aria-hidden="true"
-                    />
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="text-sm font-medium">Versão {v.version}</p>
+                    <span className={cn("absolute top-1.5 left-0 size-[11px] rounded-full border-2", i === 0 ? "border-jelly-teal bg-jelly-teal/30" : "border-white/25 bg-abyss")} aria-hidden="true" />
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                      <p className="text-sm font-medium">
+                        {v.contractLabel} · v{v.version}
+                      </p>
                       <time className="text-[11px] text-mist/40">{dateTime(v.createdAt)}</time>
                     </div>
                     <p className="mt-0.5 text-[13px] text-mist/60">{v.reason}</p>
-                    <p className="tabular mt-1.5 text-xs text-mist/50">
-                      {v.paymentType} · meta {money(v.contribution)}/mês
-                      {delta !== null && delta !== 0 ? (
-                        <span className={delta > 0 ? "ml-1.5 text-jelly-teal" : "ml-1.5 text-danger"}>
-                          {delta > 0 ? "+" : "−"}
-                          {money(Math.abs(delta))}
-                        </span>
-                      ) : null}
-                    </p>
                     <p className="mt-1 text-[11px] text-mist/35">
                       por {v.author}
                       {v.file ? (
@@ -191,13 +167,14 @@ export default async function ClientPage({ params }: PageProps<"/clientes/[id]">
                       ) : null}
                     </p>
                   </li>
-                );
-              })}
-            </ol>
+                ))}
+              </ol>
+            )}
           </Card>
+        </div>
 
-          {/* Anexos */}
-          <Card className="animate-fade-up [animation-delay:150ms]">
+        <div className="grid h-fit min-w-0 grid-cols-1 gap-4">
+          <Card className="animate-fade-up">
             <CardHeader title="Anexos" action={<AddAttachmentDialog clientId={client.id} />} />
             {files.length === 0 ? (
               <p className="px-5 py-8 text-center text-sm text-mist/45">Nenhum arquivo anexado.</p>
@@ -224,15 +201,16 @@ export default async function ClientPage({ params }: PageProps<"/clientes/[id]">
             )}
           </Card>
 
-          <Card className="animate-fade-up [animation-delay:210ms]">
-            <CardHeader title="Dados do cliente" />
+          <Card className="animate-fade-up">
+            <CardHeader title="Contato" />
             <dl className="grid gap-3 px-5 py-4 text-sm">
-              <Info label="CNPJ" value={client.document} />
-              <Info label="Contato" value={client.contactName} />
-              <Info label="E-mail" value={client.contactEmail} />
-              <Info label="Registrado em" value={dateTime(client.createdAt)} />
+              <Info label="Nome" value={client.contactName} />
+              <Info label="E-mail" value={client.contactEmail} href={client.contactEmail ? `mailto:${client.contactEmail}` : undefined} />
+              <Info label="Telefone" value={client.contactPhone} href={client.contactPhone ? `tel:${client.contactPhone.replace(/[^\d+]/g, "")}` : undefined} />
             </dl>
-            <div className="border-t border-white/[0.06] px-5 py-3">
+            {client.notes ? <p className="border-t border-white/[0.06] px-5 py-4 text-sm leading-relaxed whitespace-pre-line text-mist/70">{client.notes}</p> : null}
+            <div className="flex items-center justify-between border-t border-white/[0.06] px-5 py-3">
+              <AddContractDialog clientId={client.id} kind="principal" variant="link" />
               <DeleteClientButton clientId={client.id} name={client.name} />
             </div>
           </Card>
@@ -242,23 +220,158 @@ export default async function ClientPage({ params }: PageProps<"/clientes/[id]">
   );
 }
 
-function Line({ label, value, note }: { label: string; value: string; note?: string }) {
+function label(c: ContractRow) {
+  return c.kind === "principal" ? (c.code ?? c.description ?? "Contrato") : `Atualização${c.startAt ? ` de ${date(c.startAt)}` : ""}`;
+}
+
+/** Um contrato = uma linha da planilha, organizada em blocos. */
+function ContractCard({ c, delay }: { c: ContractRow; delay: number }) {
+  const r = c.calc;
+  const term = termLabel[r.termStatus];
+  const goalMonth = (c.signedAt ?? c.startAt)?.slice(0, 7);
+
   return (
-    <div className="flex items-center justify-between gap-4 px-5 py-3.5">
-      <dt>
-        <span className="text-mist/80">{label}</span>
-        {note ? <span className="block text-xs text-mist/40">{note}</span> : null}
+    <Card className="animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
+      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-white/[0.06] px-5 py-4">
+        <div className="min-w-0">
+          <div className="mb-1.5 flex flex-wrap items-center gap-2">
+            <Badge tone={c.kind === "principal" ? "blue" : "teal"}>{c.kind === "principal" ? "Contrato" : "Atualização"}</Badge>
+            <Badge tone={c.paymentType === "anual" ? "blue" : "neutral"}>{c.paymentType}</Badge>
+            <Badge tone={term.tone}>
+              {term.label}
+              {r.daysToExpire !== null && r.daysToExpire >= 0 ? ` · ${r.daysToExpire}d` : ""}
+            </Badge>
+            {c.version > 1 ? <Badge>v{c.version}</Badge> : null}
+          </div>
+          <h2 className="truncate text-[15px] font-semibold tracking-tight">{c.code ?? c.description ?? "Contrato"}</h2>
+          <p className="mt-0.5 text-[13px] text-mist/50">
+            {[c.description, c.quantity ? `${c.quantity} licenças` : null].filter(Boolean).join(" · ") || "—"}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <ReceiptDialog contractId={c.id} balance={r.balanceDue} />
+          <EditContractDialog contract={c} />
+          <DeleteContractButton contractId={c.id} />
+        </div>
+      </header>
+
+      <div className="grid grid-cols-1 divide-white/[0.06] max-lg:divide-y lg:grid-cols-3 lg:divide-x">
+        {/* Receita → Resultado */}
+        <dl className="grid content-start gap-2 px-5 py-4 text-[13px]">
+          <Block>Receita · custo · resultado</Block>
+          <Line col="K" label="Valor mensal" value={c.paymentType === "anual" && c.licensesMonthlyCents === null ? "Anual" : money(r.monthly)} />
+          <Line col="L" label="Valor anual" value={money(r.annual)} />
+          <Line col="M" label={`Imposto NF ${pct(NF_TAX_RATE)}`} value={`− ${money(r.tax)}`} muted manual={c.taxOverrideCents !== null} />
+          <Line col="N" label="Valor líquido" value={money(r.net)} strong />
+          <Line col="O" label="Claude mensal" value={c.claudeMonthlyCents !== null ? money(c.claudeMonthlyCents) : "—"} muted />
+          <Line col="P" label="Licença anual" value={`− ${money(r.claudeAnnual)}`} muted manual={c.claudeAnnualOverrideCents !== null} />
+          <Line col="Q" label={`IOF ${pct(IOF_RATE)}`} value={`− ${money(r.iof)}`} muted manual={c.iofOverrideCents !== null} />
+          <Line col="R" label="Total licença" value={`− ${money(r.licenseTotal)}`} manual={c.licenseTotalOverrideCents !== null} />
+          <Line col="S" label="Consultoria" value={`+ ${money(r.consulting)}`} />
+          <div className="mt-1 flex items-baseline justify-between rounded-lg bg-white/[0.04] px-3 py-2">
+            <dt className="text-mist/70">
+              <span className="mr-1.5 font-mono text-[10px] text-mist/35">T</span>Resultado
+            </dt>
+            <dd className={cn("tabular font-semibold", r.result < 0 ? "text-danger" : "text-jelly-teal")}>
+              {money(r.result)} <span className="text-[11px] font-normal text-mist/40">({percent(r.margin)})</span>
+            </dd>
+          </div>
+        </dl>
+
+        {/* Vigência + meta */}
+        <dl className="grid content-start gap-2 px-5 py-4 text-[13px]">
+          <Block>Vigência e meta</Block>
+          <Line col="F" label="Assinatura" value={c.signedAt ? date(c.signedAt) : "—"} />
+          <Line col="G" label="Início" value={c.startAt ? date(c.startAt) : "—"} />
+          <Line col="H" label="Fim" value={c.endAt ? date(c.endAt) : "—"} />
+          <Line col="AE" label="Dias até vencer" value={r.daysToExpire === null ? "—" : String(r.daysToExpire)} />
+          <Line col="J" label="Mensal 2027" value={c.proposal2027MonthlyCents !== null ? money(c.proposal2027MonthlyCents) : "—"} />
+          <div className="my-1 h-px bg-white/[0.06]" />
+          <Line label={c.paymentType === "anual" ? "Suporte ÷ 12" : "Suporte mensal"} value={money(c.paymentType === "anual" ? c.supportCents / 12 : c.supportCents)} muted />
+          <Line label="Treinamento ÷ 12" value={c.trainingCents ? money(c.trainingCents / 12) : "—"} muted />
+          <Line label="Soma na meta / mês" value={money(r.goalContribution)} strong />
+          {goalMonth ? (
+            <p className="text-right text-[11px] text-mist/40">
+              conta em{" "}
+              <Link href={`/?mes=${goalMonth}`} className="text-mist/60 underline decoration-white/20 underline-offset-2 hover:text-jelly-teal">
+                {monthTitle(goalMonth)}
+              </Link>
+            </p>
+          ) : (
+            <p className="text-right text-[11px] text-warn">Sem data: não entra em nenhuma meta</p>
+          )}
+        </dl>
+
+        {/* Financeiro + status */}
+        <dl className="grid content-start gap-2 px-5 py-4 text-[13px]">
+          <Block>Financeiro e status</Block>
+          <Line col="Y" label="Forma de pagamento" value={c.paymentMethod ?? "—"} />
+          <Line col="Z" label="Nº de parcelas" value={String(r.installments)} />
+          <Line col="AA" label="Valor por parcela" value={money(r.installmentValue)} manual={c.installmentOverrideCents !== null} />
+          <Line col="AB" label="Valor recebido" value={money(c.receivedCents)} />
+          <Line col="AC" label="Saldo a receber" value={money(r.balanceDue)} strong />
+          <div className="my-1 h-px bg-white/[0.06]" />
+          <StatusLine col="AF" title="Situação financeira" status={financialLabel[r.financialStatus]} />
+          <StatusLine col="V" title="Faturamento" status={billingLabel[c.billingStatus]} />
+          <StatusLine col="W" title="Licenças" status={licenseLabel[c.licenseStatus]} />
+          <Line col="U" label="Ação" value={c.action ?? "—"} />
+          <Line col="AG" label="Responsável" value={c.owner ?? "—"} />
+        </dl>
+      </div>
+    </Card>
+  );
+}
+
+function Block({ children }: { children: React.ReactNode }) {
+  return <p className="mb-1 text-[11px] font-medium tracking-[0.14em] text-mist/40 uppercase">{children}</p>;
+}
+
+function Line({ col, label, value, strong, muted, manual }: { col?: string; label: string; value: string; strong?: boolean; muted?: boolean; manual?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className={cn("min-w-0", muted ? "text-mist/45" : "text-mist/65")}>
+        {col ? <span className="mr-1.5 inline-block w-5 font-mono text-[10px] text-mist/30">{col}</span> : null}
+        {label}
+        {manual ? (
+          <span className="ml-1.5 rounded bg-warn/10 px-1 text-[10px] text-warn" title="Valor digitado (não é a fórmula)">
+            manual
+          </span>
+        ) : null}
       </dt>
-      <dd className="tabular font-medium">{value}</dd>
+      <dd className={cn("tabular min-w-0 truncate text-right", strong ? "font-semibold text-mist" : muted ? "text-mist/55" : "text-mist/85")} title={value}>
+        {value}
+      </dd>
     </div>
   );
 }
 
-function Info({ label, value }: { label: string; value: string | null }) {
+function StatusLine({ col, title, status }: { col: string; title: string; status: { label: string; tone: "neutral" | "teal" | "blue" | "warn" | "danger" } }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="text-mist/65">
+        <span className="mr-1.5 inline-block w-5 font-mono text-[10px] text-mist/30">{col}</span>
+        {title}
+      </dt>
+      <dd>
+        <Badge tone={status.tone}>{status.label}</Badge>
+      </dd>
+    </div>
+  );
+}
+
+function Info({ label, value, href }: { label: string; value: string | null; href?: string }) {
   return (
     <div className="flex justify-between gap-4">
       <dt className="text-mist/45">{label}</dt>
-      <dd className="truncate text-right text-mist/80">{value || "—"}</dd>
+      <dd className="min-w-0 truncate text-right text-mist/80">
+        {value && href ? (
+          <a href={href} className="hover:text-jelly-teal">
+            {value}
+          </a>
+        ) : (
+          value || "—"
+        )}
+      </dd>
     </div>
   );
 }

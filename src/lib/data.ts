@@ -1,95 +1,89 @@
 import "server-only";
-import { and, asc, desc, eq, gte, like, lt, or, sql } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { addMonths, format, parse } from "date-fns";
 import { requireUser } from "./auth/dal";
-import { clientResult, goalContribution, goalProgress, monthOf } from "./calc";
+import { computeContract, goalMonthOf, goalProgress, sumComputed, type ContractValues } from "./calc";
 import { db } from "./db";
-import { clients, files, goals, invoices, proposalVersions, users } from "./db/schema";
+import { clients, contractVersions, contracts, files, goals, invoices, users, type Client, type Contract } from "./db/schema";
 
 /**
- * Consultas de leitura. Todas exigem usuário autenticado (requireUser).
- * Os cálculos vêm sempre de src/lib/calc.ts.
+ * Consultas de leitura. Todas exigem usuário autenticado.
+ * Os números vêm SEMPRE de src/lib/calc.ts.
  */
 
-function monthRange(month: string) {
-  const start = parse(month, "yyyy-MM", new Date());
-  return { from: format(start, "yyyy-MM-dd"), to: format(addMonths(start, 1), "yyyy-MM-dd") };
+export type ContractRow = Contract & { client: Client; calc: ReturnType<typeof computeContract> };
+
+const withCalc = (c: Contract, client: Client): ContractRow => ({ ...c, client, calc: computeContract(c as ContractValues) });
+
+/** Todos os contratos com o cliente e os cálculos — base da visão "Planilha". */
+export async function listContracts() {
+  await requireUser();
+  const rows = await db
+    .select()
+    .from(contracts)
+    .innerJoin(clients, eq(contracts.clientId, clients.id))
+    .orderBy(asc(contracts.kind), asc(contracts.signedAt), asc(contracts.startAt), asc(clients.name));
+  return rows.map((r) => withCalc(r.contracts, r.clients)).sort(byKind);
 }
 
-async function costsByClient() {
-  const rows = await db
-    .select({ clientId: invoices.clientId, total: sql<number>`coalesce(sum(${invoices.amountCents}), 0)` })
-    .from(invoices)
-    .groupBy(invoices.clientId);
-  return new Map(rows.map((r) => [r.clientId, Number(r.total)]));
-}
+/** Contrato principal antes das atualizações (como na planilha). */
+const byKind = (a: Contract, b: Contract) => (a.kind === b.kind ? 0 : a.kind === "principal" ? -1 : 1);
 
 export async function getDashboard(month: string) {
-  await requireUser();
-  const { from, to } = monthRange(month);
+  const all = await listContracts();
+  const goal = await db.query.goals.findFirst({ where: eq(goals.month, month) });
 
-  const [goal, monthClients, allClients, costs] = await Promise.all([
-    db.query.goals.findFirst({ where: eq(goals.month, month) }),
-    db
-      .select()
-      .from(clients)
-      .where(and(gte(clients.closedAt, from), lt(clients.closedAt, to)))
-      .orderBy(desc(clients.closedAt), desc(clients.createdAt)),
-    db.select().from(clients),
-    costsByClient(),
-  ]);
+  const ofMonth = all.filter((c) => goalMonthOf(c) === month);
+  const progress = goalProgress(goal?.targetCents ?? 0, ofMonth.map((c) => c.calc.goalContribution));
 
-  const contributions = monthClients.map((c) => ({ client: c, contribution: goalContribution(c) }));
-  const progress = goalProgress(goal?.targetCents ?? 0, contributions.map((c) => c.contribution));
-
-  let revenueMonth = 0;
-  let costMonth = 0;
-  for (const c of monthClients) {
-    const r = clientResult(c, [{ amountCents: costs.get(c.id) ?? 0 }]);
-    revenueMonth += r.revenueCents;
-    costMonth += r.costCents;
-  }
-
-  // Histórico dos últimos 6 meses (atingido x meta)
-  const months = Array.from({ length: 6 }, (_, i) =>
-    format(addMonths(parse(month, "yyyy-MM", new Date()), i - 5), "yyyy-MM"),
-  );
+  const months = Array.from({ length: 6 }, (_, i) => format(addMonths(parse(month, "yyyy-MM", new Date()), i - 5), "yyyy-MM"));
   const goalRows = await db.select().from(goals);
   const goalMap = new Map(goalRows.map((g) => [g.month, g.targetCents]));
-  const history = months.map((m) => {
-    const achieved = allClients.filter((c) => monthOf(c.closedAt) === m).reduce((s, c) => s + goalContribution(c), 0);
-    return { month: m, achievedCents: achieved, targetCents: goalMap.get(m) ?? 0 };
-  });
+  const history = months.map((m) => ({
+    month: m,
+    achievedCents: all.filter((c) => goalMonthOf(c) === m).reduce((s, c) => s + c.calc.goalContribution, 0),
+    targetCents: goalMap.get(m) ?? 0,
+  }));
+
+  const expiring = all
+    .filter((c) => c.calc.termStatus === "a_vencer" || c.calc.termStatus === "vencido")
+    .sort((a, b) => (a.calc.daysToExpire ?? 0) - (b.calc.daysToExpire ?? 0));
+  const pending = all.filter((c) => c.billingStatus !== "ok" || c.licenseStatus !== "ok");
 
   return {
     month,
     goal: goal ?? null,
     progress,
-    contributions,
-    totals: {
-      clients: monthClients.length,
-      revenueCents: revenueMonth,
-      costCents: costMonth,
-      resultCents: revenueMonth - costMonth,
-    },
+    ofMonth,
+    monthTotals: sumComputed(ofMonth.map((c) => c.calc)),
+    portfolio: { ...sumComputed(all.map((c) => c.calc)), contracts: all.length },
     history,
+    expiring,
+    pending,
   };
 }
 
 export async function listClients(query?: string) {
   await requireUser();
-  const q = query?.trim();
-  const rows = await db
-    .select()
-    .from(clients)
-    .where(q ? or(like(clients.name, `%${q}%`), like(clients.document, `%${q}%`)) : undefined)
-    .orderBy(desc(clients.closedAt), asc(clients.name));
-  const costs = await costsByClient();
-  return rows.map((c) => ({
-    ...c,
-    contribution: goalContribution(c),
-    result: clientResult(c, [{ amountCents: costs.get(c.id) ?? 0 }]),
-  }));
+  const all = await listContracts();
+  const q = query?.trim().toLowerCase();
+  const byClient = new Map<string, { client: Client; contracts: ContractRow[] }>();
+  for (const c of all) {
+    const entry = byClient.get(c.clientId) ?? { client: c.client, contracts: [] };
+    entry.contracts.push(c);
+    byClient.set(c.clientId, entry);
+  }
+  // clientes sem contrato
+  for (const cl of await db.select().from(clients)) {
+    if (!byClient.has(cl.id)) byClient.set(cl.id, { client: cl, contracts: [] });
+  }
+  return [...byClient.values()]
+    .filter(({ client }) => !q || client.name.toLowerCase().includes(q) || (client.document ?? "").includes(q))
+    .map((e) => {
+      const main = e.contracts.find((c) => c.kind === "principal") ?? e.contracts[0];
+      return { ...e, main, totals: sumComputed(e.contracts.map((c) => c.calc)) };
+    })
+    .sort((a, b) => (b.main?.signedAt ?? "").localeCompare(a.main?.signedAt ?? "") || a.client.name.localeCompare(b.client.name));
 }
 
 export async function getClient(id: string) {
@@ -97,39 +91,47 @@ export async function getClient(id: string) {
   const client = await db.query.clients.findFirst({ where: eq(clients.id, id) });
   if (!client) return null;
 
-  const [versions, clientInvoices, clientFiles, people] = await Promise.all([
-    db.select().from(proposalVersions).where(eq(proposalVersions.clientId, id)).orderBy(desc(proposalVersions.version)),
+  const [cts, clientInvoices, clientFiles, people] = await Promise.all([
+    db.select().from(contracts).where(eq(contracts.clientId, id)).orderBy(asc(contracts.kind), asc(contracts.startAt)),
     db.select().from(invoices).where(eq(invoices.clientId, id)).orderBy(desc(invoices.issueDate)),
     db.select().from(files).where(eq(files.clientId, id)).orderBy(desc(files.createdAt)),
     db.select({ id: users.id, name: users.name }).from(users),
   ]);
 
+  const versions = cts.length
+    ? await db
+        .select()
+        .from(contractVersions)
+        .innerJoin(contracts, eq(contractVersions.contractId, contracts.id))
+        .where(eq(contracts.clientId, id))
+        .orderBy(desc(contractVersions.createdAt))
+    : [];
+
   const names = new Map(people.map((p) => [p.id, p.name]));
   const fileMap = new Map(clientFiles.map((f) => [f.id, f]));
+  const rows = cts.map((c) => withCalc(c, client)).sort(byKind);
 
   return {
     client,
-    contribution: goalContribution(client),
-    result: clientResult(client, clientInvoices),
-    versions: versions.map((v) => ({
+    contracts: rows,
+    totals: sumComputed(rows.map((r) => r.calc)),
+    versions: versions.map(({ contract_versions: v, contracts: c }) => ({
       ...v,
-      author: v.createdBy ? (names.get(v.createdBy) ?? "—") : "—",
+      contractLabel: c.kind === "principal" ? (c.code ?? "Contrato") : `Atualização ${c.code ?? ""}`.trim(),
+      author: v.createdBy ? (names.get(v.createdBy) ?? "—") : "Importação",
       file: v.fileId ? (fileMap.get(v.fileId) ?? null) : null,
-      contribution: goalContribution(v),
     })),
     invoices: clientInvoices.map((i) => ({ ...i, file: i.fileId ? (fileMap.get(i.fileId) ?? null) : null })),
+    invoicesTotal: clientInvoices.reduce((s, i) => s + i.amountCents, 0),
     files: clientFiles,
   };
 }
 
 export async function listGoals() {
   await requireUser();
-  const [goalRows, allClients] = await Promise.all([
-    db.select().from(goals).orderBy(desc(goals.month)),
-    db.select().from(clients),
-  ]);
+  const [goalRows, all] = await Promise.all([db.select().from(goals).orderBy(desc(goals.month)), listContracts()]);
   return goalRows.map((g) => {
-    const achieved = allClients.filter((c) => monthOf(c.closedAt) === g.month).reduce((s, c) => s + goalContribution(c), 0);
+    const achieved = all.filter((c) => goalMonthOf(c) === g.month).reduce((s, c) => s + c.calc.goalContribution, 0);
     return { ...g, progress: goalProgress(g.targetCents, [achieved]) };
   });
 }

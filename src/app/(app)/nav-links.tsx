@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Gauge, Target, Users } from "lucide-react";
+import { Gauge, Sheet, Target, Users } from "lucide-react";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 
 const items = [
   { href: "/", label: "Painel", icon: Gauge, match: (p: string) => p === "/" },
   { href: "/clientes", label: "Clientes", icon: Users, match: (p: string) => p.startsWith("/clientes") },
+  { href: "/planilha", label: "Planilha", icon: Sheet, match: (p: string) => p.startsWith("/planilha") },
   { href: "/metas", label: "Metas", icon: Target, match: (p: string) => p.startsWith("/metas") },
 ] as const;
 

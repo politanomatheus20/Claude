@@ -10,7 +10,7 @@ export default function NewClientPage() {
       <PageHeader
         eyebrow="Clientes"
         title="Registrar cliente fechado"
-        description="Os valores desta proposta viram a versão 1. Atualizações futuras geram novas versões e recalculam tudo."
+        description="Preencha como uma linha da planilha. O cálculo ao lado usa exatamente as mesmas fórmulas."
       />
       <NewClientForm />
     </>

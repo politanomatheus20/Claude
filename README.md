@@ -2,7 +2,7 @@
 
 Sistema interno que substitui a planilha de controle de clientes fechados da operação Claude: registra a proposta de cada cliente, invoices, custo e resultado, e acompanha a **meta mensal** com uma barra de progresso.
 
-> **Status:** 🟢 v0.1 funcional. ⚠️ As regras de cálculo ainda **precisam ser validadas contra a planilha original** (ela é privada e não pôde ser lida — ver [Pendências](#-pendências)).
+> **Status:** 🟢 v0.2 — cálculos idênticos à planilha **CLAUDE DATAGROUP 2026** (289 valores conferidos, 0 divergências).
 
 ---
 
@@ -11,31 +11,52 @@ Sistema interno que substitui a planilha de controle de clientes fechados da ope
 | Área | O que faz |
 |---|---|
 | **Login** | Apenas o e-mail. Só entra quem tem `@datagroup.global`. Depois do primeiro acesso a sessão dura **1 ano** (login automático). |
-| **Painel** | Barra de progresso da meta do mês, quanto falta na **metade** e no **fim** da barra, números animados, fechamentos do mês, receita/custo/resultado e histórico de 6 meses. Navegação entre meses. |
-| **Novo cliente** | Nome, CNPJ, contato, data de fechamento, **pagamento mensal ou anual**, valor das **licenças**, do **suporte**, **treinamento para liderança** (opcional), anexo da proposta e observações. Prévia do cálculo ao vivo. |
-| **Atualizar proposta** | Gera uma **nova versão** (histórico imutável com motivo, autor, data e anexo). Meta, receita e resultado são recalculados na hora. |
-| **Invoices** | Número, emissão, vencimento, valor, status (pendente/paga) e anexo. Somam o **custo** do cliente. |
-| **Anexos** | Propostas e invoices (PDF, imagem, Office · até 10 MB), com visualização e download autenticados. |
+| **Painel** | Barra de progresso da meta do mês (quanto falta na **metade** e no **fim**), fechamentos do mês, valor anual / custo / consultoria / resultado, carteira total, últimos 6 meses e alertas de vigência e pendências. |
+| **Planilha** | Todas as colunas **A → AJ** da planilha, agrupadas, com linha de totais, seção **Atualização**, filtros (setor, modalidade, pendências, resultado negativo, vencendo) e exportação CSV para Excel. Valores digitados à mão aparecem em amarelo. |
+| **Clientes** | Cadastro (nome, setor, CNPJ, contato, e-mail, telefone) + contrato completo com prévia do cálculo ao vivo. Cada cliente pode ter vários contratos e **atualizações** (aditivos de licenças). |
+| **Atualizar contrato** | Gera uma nova versão no histórico (motivo, autor, data, anexo) e recalcula tudo. |
+| **Financeiro** | Parcelas, valor por parcela, recebimentos (botão *Recebimento*), saldo a receber e situação financeira. |
+| **Invoices e anexos** | Invoices para conferir o custo previsto (coluna R) e anexos de propostas, com download autenticado. |
 | **Metas** | Define/edita a meta de cada mês e mostra o histórico atingido x meta. |
 
-## 🧮 Regras de cálculo
+## 🧮 Regras de cálculo (= planilha)
 
-Fonte única de verdade: [`src/lib/calc.ts`](src/lib/calc.ts) (coberto por testes em [`src/lib/calc.test.ts`](src/lib/calc.test.ts)). Valores guardados em **centavos** (inteiros).
+Fonte única de verdade: [`src/lib/calc.ts`](src/lib/calc.ts). Sem arredondamento intermediário (como o Google Sheets); arredonda só na exibição.
 
-**Convenção de entrada:** se o pagamento é **mensal**, licenças e suporte são valores **mensais**; se é **anual**, são o valor **anual** (parcela única). O treinamento é o valor total.
+| Col. | Campo | Fórmula |
+|---|---|---|
+| K | Valor mensal | digitado · ou `L ÷ 12` |
+| L | Valor anual | `K × 12` · ou digitado |
+| M | Imposto NF | `L × 12%` · ou digitado |
+| N | Valor líquido | `L − M` |
+| O | Valor Claude mensal | digitado |
+| P | Valor licença anual | `O × 12` · ou digitado |
+| Q | IOF | `P × 3,5%` · ou digitado |
+| R | Total licença | `P + Q` · ou digitado |
+| S | Consultoria | suporte no ano (mensal × 12 ou anual) + treinamento |
+| **T** | **Resultado** | **`N − R + S`** |
+| Z | Nº de parcelas | digitado · ou 12 (mensal) / 1 (anual) |
+| AA | Valor por parcela | `L ÷ Z` · ou digitado |
+| AC | Saldo a receber | `AA × Z − AB` |
+| AD | Situação da vigência | ativo · a vencer (≤ 60 dias) · vencido · sem data |
+| AE | Dias até vencer | `H − hoje` (calculado todo dia) |
+| AF | Situação financeira | a receber se saldo > 0 |
 
-| Cálculo | Fórmula |
-|---|---|
-| Suporte mensal | Mensal: `suporte` · Anual: `suporte ÷ 12` |
-| Treinamento no mês | `treinamento ÷ 12` |
-| **Soma na meta (por cliente)** | `suporte mensal + treinamento ÷ 12` — **licenças não entram** |
-| Meta atingida no mês | soma dos clientes cuja **data de fechamento** cai no mês |
-| Receita do contrato (12m) | Mensal: `(licenças + suporte) × 12 + treinamento` · Anual: `licenças + suporte + treinamento` |
-| Custo | soma das invoices do cliente |
-| Resultado / margem | `receita − custo` · `resultado ÷ receita` |
-| Barra | `faltam = meta − atingido` · `faltam p/ metade = ⌈meta/2⌉ − atingido` · acima de 100% mostra o excedente |
+"Ou digitado": quando a planilha tem um valor fixo no lugar da fórmula (ex.: IOF real), ele fica salvo como **ajuste manual** e prevalece — igual à planilha.
 
-Exemplo: meta R$ 10.000; cliente mensal com suporte R$ 3.000 + cliente anual com suporte R$ 24.000 e treinamento R$ 12.000 → `3.000 + 2.000 + 1.000 = R$ 6.000` (60%, faltam R$ 4.000).
+**Meta mensal:** soma só a consultoria — suporte do mês (anual ÷ 12) + treinamento de liderança ÷ 12 (= `S ÷ 12`). Conta no mês da **data de assinatura** (F); atualizações sem assinatura contam no mês de **início** (G).
+
+### Importar / conferir a planilha
+
+```bash
+npm run import:planilha -- "C:/caminho/CLAUDE DATAGROUP 2026.xlsx" --check    # só confere, linha a linha
+npm run import:planilha -- "C:/caminho/CLAUDE DATAGROUP 2026.xlsx"            # importa (banco vazio)
+npm run import:planilha -- "C:/caminho/CLAUDE DATAGROUP 2026.xlsx" --replace  # apaga clientes/contratos e reimporta
+```
+
+O importador lê fórmulas e valores, detecta o que foi digitado à mão e compara cada coluna calculada pelo sistema com a planilha. Se houver qualquer divergência, ele não grava.
+
+> 🔒 O repositório é **público**: a planilha e os dados dos clientes **nunca** vão para o Git (ficam só em `data/`, que é ignorado).
 
 ## 🎨 Identidade visual
 
@@ -66,19 +87,22 @@ src/
 │  ├─ login/                   # tela de login + actions de login/logout
 │  ├─ (app)/                   # área autenticada (sidebar)
 │  │  ├─ page.tsx              # Painel
-│  │  ├─ clientes/             # lista, novo, detalhe ([id]) e campos da proposta
+│  │  ├─ clientes/             # lista, novo, detalhe ([id]), campos de cliente e contrato
+│  │  ├─ planilha/             # visão com todas as colunas A → AJ
 │  │  └─ metas/                # metas mensais
 │  ├─ files/[id]/route.ts      # download autenticado de anexos
 │  └─ actions.ts               # todas as mutações (Server Actions)
 ├─ components/                 # barra de meta, tentáculos, água-viva, UI base
 └─ lib/
-   ├─ calc.ts                  # ★ regras de negócio
+   ├─ calc.ts                  # ★ regras de negócio (= fórmulas da planilha)
+   ├─ labels.ts                # rótulos de status
    ├─ data.ts                  # consultas (sempre autenticadas)
    ├─ db/                      # schema Drizzle + conexão
    ├─ auth/                    # sessão (JWT) e DAL
    ├─ storage.ts               # anexos (local/Blob)
    ├─ validation.ts            # schemas Zod
    └─ format.ts                # moeda BRL, datas pt-BR
+scripts/import-planilha.ts     # importação + conferência linha a linha
 drizzle/                       # migrações SQL
 public/brand, public/media     # logo, favicon e vídeo da água-viva
 ```
@@ -98,6 +122,7 @@ npm run dev                    # http://localhost:3000
 |---|---|
 | `npm run dev` / `build` / `start` | desenvolvimento / build / produção |
 | `npm test` | testes das regras de cálculo |
+| `npm run import:planilha` | importa/confere a planilha (ver acima) |
 | `npm run lint` / `typecheck` | qualidade |
 | `npm run db:generate` | gera migração após alterar `src/lib/db/schema.ts` |
 | `npm run db:migrate` | aplica migrações |
@@ -120,10 +145,10 @@ npm run dev                    # http://localhost:3000
 
 ## 📌 Pendências
 
-- [ ] **Validar as regras com a planilha** — ela é privada (retornou 401). Compartilhar como "qualquer pessoa com o link pode ver" ou exportar `.xlsx` para a pasta do projeto.
-- [ ] Confirmar se **licenças** devem entrar na receita/resultado como implementado e se as **invoices** são custo (fornecedor) — hoje são tratadas como custo.
-- [ ] Confirmar o mês em que uma **atualização de proposta** conta na meta (hoje: mês do fechamento original).
-- [ ] Importar os dados atuais da planilha.
+- [ ] Confirmar a regra da meta (consultoria ÷ 12, pelo mês da assinatura) — a planilha não tem coluna de meta.
+- [ ] Linhas da seção **Atualização** (Grupasso, ENW, Nutrimental) repetem o valor mensal do contrato original com quantidade menor — conferir se os valores estão certos na planilha.
+- [ ] Ajustar nomes importados que são códigos (SECOM, Venosan).
+- [ ] ENW, Semantix e SESI não têm data de assinatura: não entram na meta de nenhum mês.
 
 ---
 
@@ -137,3 +162,4 @@ npm run dev                    # http://localhost:3000
 |---|---|
 | 2026-11-17 | Repositório conectado ao GitHub; README inicial com escopo do sistema. |
 | 2026-11-17 | v0.1: login por domínio com sessão persistente, painel com barra de meta (metade/fim, animada), cadastro de clientes, versões de proposta, invoices, anexos, metas mensais, identidade visual DataGroup (água-viva + tentáculos), testes das regras de cálculo. |
+| 2026-11-17 | v0.2: modelo refeito com base na planilha real — contratos (A→AJ), fórmulas idênticas (N, R, T…), ajustes manuais, atualizações, financeiro (parcelas, recebido, saldo), vigência, visão Planilha com totais/filtros/exportação, importador com conferência (289 valores, 0 divergências). |
