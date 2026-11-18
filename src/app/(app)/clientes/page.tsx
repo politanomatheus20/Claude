@@ -1,106 +1,145 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { ArrowUpRight, Plus, Search } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
-import { Badge, Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { listClients } from "@/lib/data";
 import { date, money, percent } from "@/lib/format";
-import { billingLabel, sectorLabel, termLabel } from "@/lib/labels";
+import { billingLabel, licenseLabel, sectorLabel, termLabel } from "@/lib/labels";
+import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Clientes" };
+
+const th = "border-b border-white/[0.1] bg-surface px-2 py-2.5 font-medium whitespace-nowrap";
+const td = "h-10 border-b border-white/[0.05] px-2 whitespace-nowrap";
 
 export default async function ClientsPage({ searchParams }: PageProps<"/clientes">) {
   const { q } = await searchParams;
   const query = typeof q === "string" ? q : "";
   const rows = await listClients(query);
 
-  return (
-    <>
-      <PageHeader
-        eyebrow="Clientes"
-        title="Clientes"
-        description="Totais somam o contrato principal e as atualizações de cada cliente."
-        actions={
-          <Button asChild variant="primary">
-            <Link href="/clientes/novo">
-              <Plus />
-              Novo cliente
-            </Link>
-          </Button>
-        }
-      />
+  const sum = (k: "annual" | "licenseTotal" | "consulting" | "result" | "goalContribution" | "balanceDue") => rows.reduce((s, r) => s + r.totals[k], 0);
+  const totalAnnual = sum("annual");
+  const totalResult = sum("result");
 
-      <Card className="animate-fade-up">
-        <form className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-3" role="search">
-          <Search className="size-4 text-mist/40" />
-          <input name="q" defaultValue={query} placeholder="Buscar por nome ou CNPJ" className="h-8 flex-1 bg-transparent text-sm outline-none placeholder:text-mist/35" />
+  return (
+    <div className="flex h-[calc(100svh-9.5rem)] min-h-[28rem] flex-col gap-3 lg:h-[calc(100svh-2.5rem)]">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="mr-2 flex items-baseline gap-2">
+          <h1 className="text-lg font-semibold tracking-tight">Clientes</h1>
+          <span className="text-xs text-mist/40">{rows.length}</span>
+        </div>
+        <form role="search" className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-white/10 bg-abyss-deep/60 px-3 focus-within:border-jelly-teal/60 sm:max-w-xs">
+          <Search className="size-4 shrink-0 text-mist/40" />
+          <input name="q" defaultValue={query} placeholder="Buscar por nome ou CNPJ" className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-mist/35" />
           {query ? (
             <Link href="/clientes" className="text-xs text-mist/50 hover:text-mist">
               Limpar
             </Link>
           ) : null}
         </form>
+        <p className="tabular hidden text-xs text-mist/45 md:block">
+          Resultado <b className={totalResult < 0 ? "text-danger" : "text-jelly-teal"}>{money(totalResult)}</b> · na meta/mês{" "}
+          <b className="text-mist/80">{money(sum("goalContribution"))}</b>
+        </p>
+        <Button asChild variant="primary" size="sm" className="ml-auto h-9">
+          <Link href="/clientes/novo">
+            <Plus />
+            Novo cliente
+          </Link>
+        </Button>
+      </div>
 
+      <div className="min-h-0 flex-1 overflow-auto rounded-[var(--radius-card)] border border-white/[0.08] bg-abyss shadow-[var(--shadow-card)]">
         {rows.length === 0 ? (
-          <div className="px-5 py-16 text-center">
-            <p className="text-sm text-mist/55">{query ? `Nada encontrado para “${query}”.` : "Nenhum cliente registrado ainda."}</p>
-          </div>
+          <p className="px-5 py-16 text-center text-sm text-mist/55">{query ? `Nada encontrado para “${query}”.` : "Nenhum cliente registrado ainda."}</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[60rem] text-sm">
-              <thead>
-                <tr className="text-left text-xs text-mist/45">
-                  <th className="px-5 py-3 font-medium">Cliente</th>
-                  <th className="px-3 py-3 font-medium">Assinatura</th>
-                  <th className="px-3 py-3 font-medium">Modalidade</th>
-                  <th className="px-3 py-3 text-right font-medium">Valor anual</th>
-                  <th className="px-3 py-3 text-right font-medium">Total licença</th>
-                  <th className="px-3 py-3 text-right font-medium">Resultado</th>
-                  <th className="px-3 py-3 text-right font-medium">Na meta/mês</th>
-                  <th className="px-3 py-3 font-medium">Vigência</th>
-                  <th className="px-5 py-3 font-medium">Faturamento</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.05]">
-                {rows.map(({ client, main, contracts, totals }) => (
-                  <tr key={client.id} className="group transition hover:bg-white/[0.02]">
-                    <td className="max-w-72 px-5 py-3">
-                      <Link href={`/clientes/${client.id}`} className="flex items-center gap-1.5 font-medium hover:text-jelly-teal">
+          <table className="w-full min-w-[56rem] border-separate border-spacing-0 text-[12.5px]">
+            <thead className="sticky top-0 z-20 text-left text-xs text-mist/55">
+              <tr>
+                <th className={cn(th, "sticky left-0 z-10 border-r border-r-white/[0.08] px-4")}>Cliente</th>
+                <th className={th}>Assinatura</th>
+                <th className={th}>Modalidade</th>
+                <th className={cn(th, "text-right")}>Qtd</th>
+                <th className={cn(th, "text-right")}>Valor anual</th>
+                <th className={cn(th, "text-right")}>Total licença</th>
+                <th className={cn(th, "text-right")}>Resultado</th>
+                <th className={cn(th, "text-right")}>Na meta/mês</th>
+                <th className={cn(th, "text-right")}>Saldo a receber</th>
+                <th className={th}>Vigência</th>
+                <th className={cn(th, "pr-4")} title="Faturamento e licenças">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ client, main, contracts, totals }) => {
+                const qty = contracts.reduce((s, c) => s + (c.quantity ?? 0), 0);
+                return (
+                  <tr key={client.id} className="group">
+                    <td className={cn(td, "sticky left-0 z-10 max-w-[12rem] border-r border-r-white/[0.08] bg-abyss px-4 group-hover:bg-surface")}>
+                      <Link
+                        href={`/clientes/${client.id}`}
+                        title={`${client.name}${client.document ? ` · CNPJ ${client.document}` : ""}`}
+                        className="flex items-center gap-1.5 font-medium hover:text-jelly-teal"
+                      >
                         <span className="truncate">{client.name}</span>
+                        {client.sector === "governo" ? <span className="shrink-0 text-[10px] font-normal tracking-wide text-[#7fb0ff] uppercase">{sectorLabel.governo}</span> : null}
+                        {contracts.length > 1 ? <span className="shrink-0 text-[11px] font-normal text-mist/40">+{contracts.length - 1}</span> : null}
                         <ArrowUpRight className="size-3.5 shrink-0 opacity-0 transition group-hover:opacity-60" />
                       </Link>
-                      <span className="text-xs text-mist/40">
-                        {sectorLabel[client.sector]}
-                        {main?.quantity ? ` · ${main.quantity} licenças` : ""}
-                        {contracts.length > 1 ? ` · ${contracts.length} contratos` : ""}
+                    </td>
+                    <td className={cn(td, "tabular text-mist/70 group-hover:bg-white/[0.025]")}>{main?.signedAt ? `${main.signedAt.slice(8, 10)}/${main.signedAt.slice(5, 7)}/${main.signedAt.slice(2, 4)}` : "—"}</td>
+                    <td className={cn(td, "text-[12px] capitalize group-hover:bg-white/[0.025]", main?.paymentType === "anual" ? "text-[#7fb0ff]" : "text-mist/65")}>{main?.paymentType ?? "—"}</td>
+                    <td className={cn(td, "tabular text-right group-hover:bg-white/[0.025]")}>{qty || "—"}</td>
+                    <td className={cn(td, "tabular text-right group-hover:bg-white/[0.025]")}>{money(totals.annual)}</td>
+                    <td className={cn(td, "tabular text-right text-mist/65 group-hover:bg-white/[0.025]")}>{money(totals.licenseTotal)}</td>
+                    <td className={cn(td, "text-right group-hover:bg-white/[0.025]")}>
+                      <span
+                        className={cn("tabular font-medium", totals.result < 0 ? "text-danger" : "text-jelly-teal")}
+                        title={`Margem ${percent(totals.annual > 0 ? totals.result / totals.annual : null)}`}
+                      >
+                        {money(totals.result)}
                       </span>
                     </td>
-                    <td className="tabular px-3 py-3 text-mist/70">{main?.signedAt ? date(main.signedAt) : "—"}</td>
-                    <td className="px-3 py-3">{main ? <Badge tone={main.paymentType === "anual" ? "blue" : "neutral"}>{main.paymentType}</Badge> : "—"}</td>
-                    <td className="tabular px-3 py-3 text-right">{money(totals.annual)}</td>
-                    <td className="tabular px-3 py-3 text-right text-mist/60">{money(totals.licenseTotal)}</td>
-                    <td className="px-3 py-3 text-right">
-                      <span className={"tabular font-medium " + (totals.result < 0 ? "text-danger" : "")}>{money(totals.result)}</span>
-                      <span className="tabular block text-xs text-mist/40">{percent(totals.annual > 0 ? totals.result / totals.annual : null)}</span>
-                    </td>
-                    <td className="tabular px-3 py-3 text-right font-medium text-jelly-teal">{money(totals.goalContribution)}</td>
-                    <td className="px-3 py-3">
+                    <td className={cn(td, "tabular text-right font-medium group-hover:bg-white/[0.025]")}>{totals.goalContribution ? money(totals.goalContribution) : "—"}</td>
+                    <td className={cn(td, "tabular text-right text-mist/75 group-hover:bg-white/[0.025]")}>{money(totals.balanceDue)}</td>
+                    <td className={cn(td, "group-hover:bg-white/[0.025]")}>
                       {main ? (
-                        <Badge tone={termLabel[main.calc.termStatus].tone}>
-                          {termLabel[main.calc.termStatus].label}
-                          {main.calc.daysToExpire !== null && main.calc.daysToExpire >= 0 ? ` · ${main.calc.daysToExpire}d` : ""}
+                        <Badge tone={termLabel[main.calc.termStatus].tone} title={main.endAt ? `Fim em ${date(main.endAt)}` : undefined}>
+                          {main.calc.daysToExpire !== null && main.calc.daysToExpire >= 0 ? `${main.calc.daysToExpire}d` : termLabel[main.calc.termStatus].label}
                         </Badge>
                       ) : null}
                     </td>
-                    <td className="px-5 py-3">{main ? <Badge tone={billingLabel[main.billingStatus].tone}>{billingLabel[main.billingStatus].label}</Badge> : null}</td>
+                    <td className={cn(td, "pr-4 group-hover:bg-white/[0.025]")}>
+                      {main ? (
+                        <span className="flex gap-1">
+                          <Badge tone={billingLabel[main.billingStatus].tone} title={`Faturamento: ${billingLabel[main.billingStatus].label}`}>
+                            Fat
+                          </Badge>
+                          <Badge tone={licenseLabel[main.licenseStatus].tone} title={`Licenças: ${licenseLabel[main.licenseStatus].label}`}>
+                            Lic
+                          </Badge>
+                        </span>
+                      ) : null}
+                    </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                );
+              })}
+            </tbody>
+            <tfoot className="sticky bottom-0 z-20">
+              <tr className="tabular bg-surface-2 text-right font-medium">
+                <td className="sticky left-0 z-10 border-t border-r border-white/[0.12] bg-surface-2 px-4 py-2.5 text-left text-[11px] tracking-wide text-mist/60 uppercase">Total</td>
+                <td colSpan={3} className="border-t border-white/[0.12]" />
+                <td className="border-t border-white/[0.12] px-2 py-2.5">{money(totalAnnual)}</td>
+                <td className="border-t border-white/[0.12] px-2 py-2.5">{money(sum("licenseTotal"))}</td>
+                <td className={cn("border-t border-white/[0.12] px-2 py-2.5", totalResult < 0 ? "text-danger" : "text-jelly-teal")}>{money(totalResult)}</td>
+                <td className="border-t border-white/[0.12] px-2 py-2.5">{money(sum("goalContribution"))}</td>
+                <td className="border-t border-white/[0.12] px-2 py-2.5">{money(sum("balanceDue"))}</td>
+                <td colSpan={2} className="border-t border-white/[0.12]" />
+              </tr>
+            </tfoot>
+          </table>
         )}
-      </Card>
-    </>
+      </div>
+    </div>
   );
 }

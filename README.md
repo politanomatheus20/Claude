@@ -13,7 +13,7 @@ Sistema interno que substitui a planilha de controle de clientes fechados da ope
 | **Login** | Apenas o e-mail. Só entra quem tem `@datagroup.global`. Depois do primeiro acesso a sessão dura **1 ano** (login automático). |
 | **Painel** | Barra de progresso da meta do mês (quanto falta na **metade** e no **fim**), fechamentos do mês, valor anual / custo / consultoria / resultado, carteira total, últimos 6 meses e alertas de vigência e pendências. |
 | **Planilha** | Todas as colunas **A → AJ** em **tela inteira** (com modo *Tela cheia*), **editáveis como no Excel/Sheets**: duplo clique, Enter ou digitar para editar; Enter/Tab salva; setas navegam; Delete limpa e volta à fórmula. Cada alteração **recalcula na hora** (N, T, AC, totais, meta) e é salva automaticamente, com registro no histórico do contrato. Colunas calculadas (N, T, AC, AD, AE, AF) não são editáveis. Seção **Atualização**, filtros e exportação CSV. Valores digitados à mão aparecem em amarelo. |
-| **Clientes** | Cadastro (nome, setor, CNPJ, contato, e-mail, telefone) + contrato completo com prévia do cálculo ao vivo. Cada cliente pode ter vários contratos e **atualizações** (aditivos de licenças). |
+| **Clientes** | Lista em **tela inteira** (cabeçalho e total fixos): assinatura, modalidade, quantidade, valor anual, total licença, resultado (margem no tooltip), soma na meta, saldo a receber, vigência em dias e status de faturamento/licenças. Cadastro com prévia do cálculo ao vivo; cada cliente pode ter vários contratos e **atualizações** (aditivos de licenças). |
 | **Atualizar contrato** | Gera uma nova versão no histórico (motivo, autor, data, anexo) e recalcula tudo. |
 | **Financeiro** | Parcelas, valor por parcela, recebimentos (botão *Recebimento*), saldo a receber e situação financeira. |
 | **Invoices e anexos** | Invoices para conferir o custo previsto (coluna R) e anexos de propostas, com download autenticado. |
@@ -166,3 +166,4 @@ npm run dev                    # http://localhost:3000
 | 2026-11-17 | v0.2: modelo refeito com base na planilha real — contratos (A→AJ), fórmulas idênticas (N, R, T…), ajustes manuais, atualizações, financeiro (parcelas, recebido, saldo), vigência, visão Planilha com totais/filtros/exportação, importador com conferência (289 valores, 0 divergências). |
 | 2026-11-17 | v0.3: Planilha editável célula a célula com recálculo instantâneo e gravação automática (histórico por edição); tela inteira + modo tela cheia; testes da edição. |
 | 2026-11-17 | Textos explicativos removidos do login, do painel e da tela de metas. |
+| 2026-11-17 | Lista de Clientes em tela inteira, compacta para caber sem rolagem lateral a partir de 1440px, com linha de total. |
