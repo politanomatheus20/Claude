@@ -29,9 +29,9 @@ export default async function ClientsPage({ searchParams }: PageProps<"/clientes
           <h1 className="text-lg font-semibold tracking-tight">Clientes</h1>
           <span className="text-xs text-mist/40">{rows.length}</span>
         </div>
-        <form role="search" className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-white/10 bg-abyss-deep/60 px-3 focus-within:border-jelly-teal/60 sm:max-w-xs">
+        <form role="search" className="flex h-9 w-full items-center gap-2 rounded-lg border border-white/10 bg-abyss-deep/60 px-3 focus-within:border-jelly-teal/60 sm:w-auto sm:min-w-[15rem] sm:flex-1 sm:max-w-sm">
           <Search className="size-4 shrink-0 text-mist/40" />
-          <input name="q" defaultValue={query} placeholder="Buscar por nome ou CNPJ" className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-mist/35" />
+          <input name="q" defaultValue={query} placeholder="Nome ou CNPJ" className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-mist/35" />
           {query ? (
             <Link href="/clientes" className="text-xs text-mist/50 hover:text-mist">
               Limpar
@@ -75,13 +75,13 @@ export default async function ClientsPage({ searchParams }: PageProps<"/clientes
                 const qty = contracts.reduce((s, c) => s + (c.quantity ?? 0), 0);
                 return (
                   <tr key={client.id} className="group">
-                    <td className={cn(td, "sticky left-0 z-10 max-w-[12rem] border-r border-r-white/[0.08] bg-abyss px-4 group-hover:bg-surface")}>
+                    <td className={cn(td, "sticky left-0 z-10 min-w-[10rem] max-w-[15rem] border-r border-r-white/[0.08] bg-abyss px-4 py-1.5 whitespace-normal group-hover:bg-surface")}>
                       <Link
                         href={`/clientes/${client.id}`}
                         title={`${client.name}${client.document ? ` · CNPJ ${client.document}` : ""}`}
                         className="flex items-center gap-1.5 font-medium hover:text-jelly-teal"
                       >
-                        <span className="truncate">{client.name}</span>
+                        <span className="min-w-0 break-words">{client.name}</span>
                         {client.sector === "governo" ? <span className="shrink-0 text-[10px] font-normal tracking-wide text-[#7fb0ff] uppercase">{sectorLabel.governo}</span> : null}
                         {contracts.length > 1 ? <span className="shrink-0 text-[11px] font-normal text-mist/40">+{contracts.length - 1}</span> : null}
                         <ArrowUpRight className="size-3.5 shrink-0 opacity-0 transition group-hover:opacity-60" />

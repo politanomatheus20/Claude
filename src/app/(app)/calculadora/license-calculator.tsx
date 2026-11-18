@@ -117,8 +117,8 @@ export function LicenseCalculator() {
   const grandResultCents = monthlyTotals.resultCents + support.netSupportCents;
 
   return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_19rem]">
-      <div className="grid min-w-0 gap-4">
+    <div className="grid grid-cols-1 gap-4">
+      <div className="grid min-w-0 grid-cols-1 gap-4">
         <Card className="animate-fade-up">
           <CardHeader
             title="Calculadora de proposta — licenças de IA"
@@ -197,6 +197,7 @@ function NumInput({
   placeholder,
   manual,
   title,
+  size = "money",
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -206,10 +207,12 @@ function NumInput({
   /** Valor digitado à mão (substitui a fórmula) — mesmo destaque da Planilha. */
   manual?: boolean;
   title?: string;
+  /** "money" cabe R$ 999.999,99; "short" para quantidade/meses. */
+  size?: "money" | "short";
 }) {
   return (
-    <div className="relative">
-      {prefix ? <span className="pointer-events-none absolute inset-y-0 left-2 flex items-center text-[11px] text-mist/40">{prefix}</span> : null}
+    <div className="relative w-fit">
+      {prefix ? <span className="pointer-events-none absolute inset-y-0 left-2 z-10 flex items-center text-[11px] text-mist/45">{prefix}</span> : null}
       <input
         inputMode="decimal"
         value={value}
@@ -217,9 +220,10 @@ function NumInput({
         placeholder={placeholder}
         title={title}
         className={cn(
-          "h-8 w-full min-w-[4.5rem] rounded-md border border-white/10 bg-abyss-deep/60 text-sm tabular outline-none transition placeholder:text-mist/25 focus:border-jelly-teal/60 focus:shadow-[0_0_0_2px_rgb(53_232_200/0.12)]",
+          "h-8 rounded-md border border-white/10 bg-abyss-deep/60 text-sm tabular outline-none transition placeholder:text-mist/25 focus:border-jelly-teal/60 focus:shadow-[0_0_0_2px_rgb(53_232_200/0.12)]",
           manual ? "text-warn" : "text-mist",
-          prefix ? "pl-7 pr-2" : "px-2",
+          size === "short" ? "w-16" : prefix === "US$" ? "w-[7.5rem]" : "w-28",
+          prefix ? (prefix === "US$" ? "pr-2 pl-9" : "pr-2 pl-7") : "px-2",
           align === "center" ? "text-center" : "text-right",
         )}
       />
@@ -262,7 +266,7 @@ function MensalTable({
   onPatch: (index: number, field: keyof RowInputs, value: string) => void;
 }) {
   return (
-    <table className="w-full min-w-[62rem] text-sm">
+    <table className="w-full text-sm">
       <thead>
         <tr className="text-xs text-mist/45">
           <Th>Licença</Th>
@@ -301,7 +305,7 @@ function MensalTable({
                 <p className="mt-0.5 text-[11px] text-mist/40">IOF {money(c.iofCents)}</p>
               </Td>
               <Td>
-                <NumInput value={r.quantity} onChange={(v) => onPatch(i, "quantity", v)} align="center" />
+                <NumInput value={r.quantity} onChange={(v) => onPatch(i, "quantity", v)} align="center" size="short" />
               </Td>
               <Td>
                 <NumInput value={r.unitPrice} onChange={(v) => onPatch(i, "unitPrice", v)} prefix="R$" />
@@ -364,7 +368,7 @@ function AnualTable({
   onPatch: (index: number, field: keyof RowInputs, value: string) => void;
 }) {
   return (
-    <table className="w-full min-w-[62rem] text-sm">
+    <table className="w-full text-sm">
       <thead>
         <tr className="text-xs text-mist/45">
           <Th>Licença</Th>
@@ -403,10 +407,10 @@ function AnualTable({
                 <p className="mt-0.5 text-[11px] text-mist/40">IOF {money(c.iofCents)}</p>
               </Td>
               <Td>
-                <NumInput value={r.months} onChange={(v) => onPatch(i, "months", v)} align="center" />
+                <NumInput value={r.months} onChange={(v) => onPatch(i, "months", v)} align="center" size="short" />
               </Td>
               <Td>
-                <NumInput value={r.quantity} onChange={(v) => onPatch(i, "quantity", v)} align="center" />
+                <NumInput value={r.quantity} onChange={(v) => onPatch(i, "quantity", v)} align="center" size="short" />
               </Td>
               <Td>
                 <NumInput value={r.unitPrice} onChange={(v) => onPatch(i, "unitPrice", v)} prefix="R$" />
@@ -457,13 +461,13 @@ function ReferencePanel({
   onApply: (index: number, cents: number) => void;
 }) {
   return (
-    <div className="grid h-fit min-w-0 grid-cols-1 gap-4">
+    <div className="grid h-fit min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
       <Card className="animate-fade-up [animation-delay:60ms]">
         <CardHeader title="Tabela de apoio" description="Referência fixa — zero margem (valor padrão da calculadora)" />
         <ul className="divide-y divide-white/[0.05] text-sm">
           {reference.map((r, i) => (
             <li key={r.name} className="flex items-center justify-between gap-3 px-5 py-3">
-              <span className="min-w-0 truncate">{r.name}</span>
+              <span className="min-w-0 break-words">{r.name}</span>
               <div className="flex shrink-0 items-center gap-1">
                 <span className="tabular font-medium">{money(r.zeroMarginCents)}</span>
                 <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => onApply(i, r.zeroMarginCents)}>
@@ -480,7 +484,7 @@ function ReferencePanel({
         <ul className="divide-y divide-white/[0.05] text-sm">
           {reference.map((r, i) => (
             <li key={r.name} className="flex items-center justify-between gap-3 px-5 py-3">
-              <span className="min-w-0 truncate text-mist/70">{r.name}</span>
+              <span className="min-w-0 break-words text-mist/70">{r.name}</span>
               <div className="flex shrink-0 items-center gap-1">
                 <span className="tabular text-mist/70">{money(r.biddingCents)}</span>
                 <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => onApply(i, r.biddingCents)}>

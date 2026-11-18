@@ -179,3 +179,4 @@ npm run dev                    # http://localhost:3000
 | 2026-11-17 | v0.3: Planilha editável célula a célula com recálculo instantâneo e gravação automática (histórico por edição); tela inteira + modo tela cheia; testes da edição. |
 | 2026-11-17 | Textos explicativos removidos do login, do painel e da tela de metas. |
 | 2026-11-17 | Lista de Clientes em tela inteira, compacta para caber sem rolagem lateral a partir de 1440px, com linha de total. |
+| 2026-11-18 | Layout responsivo revisado em Calculadora, Planilha e Clientes: nada cortado (texto longo quebra linha), nada sobreposto, tela inteira em qualquer tamanho. Auditoria automática em 15 tamanhos de tela (360px a 4K) × 5 telas: 0 problemas. |

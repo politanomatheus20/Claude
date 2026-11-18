@@ -339,25 +339,25 @@ export function SheetTable({ initialRows }: { initialRows: SheetRowData[] }) {
           <h1 className="text-lg font-semibold tracking-tight">Planilha</h1>
           <span className="text-xs text-mist/40">{visible.length} linhas</span>
         </div>
-        <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-white/10 bg-abyss-deep/60 px-3 focus-within:border-jelly-teal/60 sm:max-w-xs">
+        <label className="flex h-9 w-full items-center gap-2 rounded-lg border border-white/10 bg-abyss-deep/60 px-3 focus-within:border-jelly-teal/60 sm:w-auto sm:min-w-[15rem] sm:flex-1 sm:max-w-sm">
           <Search className="size-4 shrink-0 text-mist/40" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar cliente, CNPJ, ação…" className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-mist/35" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar cliente, CNPJ…" className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-mist/35" />
         </label>
-        <div className="w-44">
+        <div className="w-44 shrink-0">
           <Select className="h-9" value={sector} onChange={(e) => setSector(e.target.value)} aria-label="Setor">
             <option value="">Todos os setores</option>
             <option value="privado">Privado</option>
             <option value="governo">Governo</option>
           </Select>
         </div>
-        <div className="w-40">
+        <div className="w-40 shrink-0">
           <Select className="h-9" value={modality} onChange={(e) => setModality(e.target.value)} aria-label="Modalidade">
             <option value="">Mensal e anual</option>
             <option value="mensal">Mensal</option>
             <option value="anual">Anual</option>
           </Select>
         </div>
-        <div className="w-48">
+        <div className="w-52 shrink-0">
           <Select className="h-9" value={only} onChange={(e) => setOnly(e.target.value)} aria-label="Filtro">
             <option value="">Todas as linhas</option>
             <option value="pendencias">Com pendência (V/W)</option>
@@ -535,12 +535,12 @@ function RowView({
               onDoubleClick={() => c.field && onEdit(pos)}
               title={manual ? `Valor digitado à mão. ${c.hint ?? ""}` : c.hint}
               className={cn(
-                "relative h-9 border-b border-white/[0.05] px-3 whitespace-nowrap select-none",
-                sticky ? "sticky left-0 z-10 border-r border-r-white/[0.1] bg-abyss font-medium group-hover:bg-surface" : "group-hover:bg-white/[0.025]",
+                "relative h-9 border-b border-white/[0.05] px-3 py-1.5 whitespace-nowrap select-none",
+                sticky ? "sticky left-0 z-10 max-w-[16rem] border-r border-r-white/[0.1] bg-abyss font-medium whitespace-normal group-hover:bg-surface" : "group-hover:bg-white/[0.025]",
                 !sticky && groupStart(ci - 1) && "border-l border-l-white/[0.05]",
                 c.num ? "tabular text-right" : "text-left",
                 c.kind === "calc" && "bg-white/[0.02] text-mist/70",
-                c.kind === "text" && !sticky && "max-w-[22rem] truncate text-mist/80",
+                c.kind === "text" && !sticky && "max-w-[22rem] whitespace-normal break-words text-mist/80",
                 c.muted?.(x) && "text-mist/40",
                 manual && "text-warn",
                 c.tone?.(x),
@@ -553,9 +553,7 @@ function RowView({
                 <Editor col={c} initial={editing.initial} onFinish={(v, nav) => onFinish(pos, v, nav)} />
               ) : sticky ? (
                 <span className="flex items-center gap-1.5">
-                  <span className="truncate" style={{ maxWidth: c.width - 40 }}>
-                    {x.client.name}
-                  </span>
+                  <span className="min-w-0 break-words">{x.client.name}</span>
                   <Link
                     href={`/clientes/${x.client.id}`}
                     onMouseDown={(e) => e.stopPropagation()}
