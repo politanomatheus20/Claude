@@ -4,6 +4,7 @@ import { LogOut, Plus } from "lucide-react";
 import { requireUser } from "@/lib/auth/dal";
 import { initials } from "@/lib/format";
 import { logout } from "../login/actions";
+import { ContentContainer } from "./content-container";
 import { NavLinks } from "./nav-links";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
@@ -71,7 +72,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           className="pointer-events-none absolute -top-48 right-0 -z-10 h-[28rem] w-[40rem] rounded-full bg-jelly-blue/[0.07] blur-[120px]"
           aria-hidden="true"
         />
-        <div className="mx-auto w-full max-w-[72rem] px-5 py-8 sm:px-8 lg:py-10">{children}</div>
+        <ContentContainer>{children}</ContentContainer>
       </main>
     </div>
   );

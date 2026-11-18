@@ -5,7 +5,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth/dal";
 import { db } from "@/lib/db";
-import { clients, contractVersions, contracts, files, goals, invoices, type ContractKind } from "@/lib/db/schema";
+import { clients, contractVersions, contracts, files, goals, invoices, type Client, type Contract, type ContractKind } from "@/lib/db/schema";
+import { applySheetEdit, isSheetField, parseSheetValue, SHEET_FIELDS } from "@/lib/sheet-edit";
 import { money } from "@/lib/format";
 import { saveFile, validateUpload } from "@/lib/storage";
 import {
@@ -243,6 +244,54 @@ export async function attachProposalFile(clientId: string, _: ActionState, fd: F
   if (!file) return invalid(fd, { proposalFile: ["Selecione um arquivo."] });
   revalidateAll(clientId);
   return { ok: true, message: "Anexo adicionado." };
+}
+
+export type SheetCellResult = { ok: true; contract: Contract; client: Client } | { ok: false; message: string };
+
+/** Edição de uma célula da visão Planilha. Mesma regra do navegador (src/lib/sheet-edit.ts). */
+export async function updateSheetCell(contractId: string, field: string, raw: string): Promise<SheetCellResult> {
+  const user = await requireUser();
+  if (!isSheetField(field)) return { ok: false, message: "Coluna não editável." };
+
+  const contract = await db.query.contracts.findFirst({ where: eq(contracts.id, contractId) });
+  if (!contract) return { ok: false, message: "Contrato não encontrado." };
+
+  const parsed = parseSheetValue(field, raw);
+  if (!parsed.ok) return parsed;
+  const applied = applySheetEdit(contract, field, parsed.value);
+  if (!applied.ok) return applied;
+  const { contract: cPatch, client: clPatch } = applied.value;
+  const now = new Date().toISOString();
+  const spec = SHEET_FIELDS[field];
+
+  if (Object.keys(clPatch).length) {
+    await db.update(clients).set({ ...clPatch, updatedAt: now }).where(eq(clients.id, contract.clientId));
+  }
+  if (Object.keys(cPatch).length) {
+    const next = contract.version + 1;
+    const fmt = (v: unknown) => (v === null || v === undefined || v === "" ? "fórmula/vazio" : spec.kind === "money" ? money(Number(v)) : String(v));
+    const before = field === "consulting" ? null : (contract as Record<string, unknown>)[field];
+    await db.batch([
+      db.insert(contractVersions).values({
+        contractId,
+        version: next,
+        snapshot: cPatch,
+        reason: `Planilha · ${spec.col} ${spec.label}: ${field === "consulting" ? "" : `${fmt(before)} → `}${fmt(parsed.value)}`,
+        createdBy: user.id,
+      }),
+      db.update(contracts).set({ ...cPatch, version: next, updatedAt: now }).where(eq(contracts.id, contractId)),
+    ]);
+  }
+
+  const [fresh, freshClient] = await Promise.all([
+    db.query.contracts.findFirst({ where: eq(contracts.id, contractId) }),
+    db.query.clients.findFirst({ where: eq(clients.id, contract.clientId) }),
+  ]);
+  revalidatePath("/");
+  revalidatePath("/clientes");
+  revalidatePath("/metas");
+  revalidatePath(`/clientes/${contract.clientId}`);
+  return { ok: true, contract: fresh!, client: freshClient! };
 }
 
 export async function saveGoal(_: ActionState, fd: FormData): Promise<ActionState> {
