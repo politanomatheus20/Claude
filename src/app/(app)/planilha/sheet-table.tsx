@@ -613,6 +613,7 @@ const RowView = memo(function RowView({
                   <span className="min-w-0 break-words">{x.client.name}</span>
                   <Link
                     href={`/clientes/${x.client.id}`}
+                    prefetch={false}
                     onMouseDown={(e) => e.stopPropagation()}
                     className="shrink-0 text-mist/30 opacity-0 transition group-hover:opacity-100 hover:text-jelly-teal"
                     title="Abrir cliente"

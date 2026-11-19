@@ -1,15 +1,20 @@
 "use client";
 
 import { motion } from "motion/react";
+import { RotateCcw } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   ANNUAL_LICENSE_REFERENCE,
+  DEFAULT_FX_RATE_CENTS,
+  IOF_RATE,
+  LICENSE_CALC_MONTHS,
   MONTHLY_LICENSE_REFERENCE,
-  computeAnnualLicenseRow,
-  computeMonthlyLicenseRow,
-  monthlySupportAddon,
-  sumAnnualLicenseRows,
-  sumMonthlyLicenseRows,
+  NF_TAX_RATE,
+  computeLicenseRow,
+  licenseProposalSummary,
+  sumLicenseRows,
+  supportFeeFor,
+  type LicenseCalcResult,
   type LicenseReference,
 } from "@/lib/calc";
 import { Stat } from "@/components/page-header";
@@ -17,154 +22,182 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { centsToInput, money, parseDecimal, parseMoneyToCents, percent } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { ProposalBuilder } from "./proposal-builder";
 
 type Mode = "mensal" | "anual";
 
+/**
+ * Entradas de uma linha. Os campos de custo (E, F, G) são "fórmula ou valor
+ * digitado": null = usa a fórmula; texto = valor fixo que prevalece.
+ */
 interface RowInputs {
-  usdCost: string;
-  fxRate: string;
-  quantity: string;
-  unitPrice: string;
-  months: string;
-  /** Ajuste manual — vazio = usa a fórmula (custo × câmbio + IOF). */
-  licenseCostOverride: string;
-  /** Ajuste manual — vazio = usa quantidade × valor unitário. */
-  clientTotalOverride: string;
+  usdCost: string; // C
+  unitCost: string | null; // E — null = C × D
+  iof: string | null; // F — null = E × 3,5%
+  licenseCost: string | null; // G — null = E + F
+  quantity: string; // H (laranja)
+  unitPrice: string; // J (laranja)
 }
 
-const emptyRow = (ref: LicenseReference): RowInputs => ({
-  usdCost: "",
-  fxRate: "5,00",
+type Field = keyof RowInputs;
+
+/** Ao editar um campo de custo, os campos calculados a partir dele voltam à fórmula. */
+const DOWNSTREAM: Partial<Record<Field, Field[]>> = {
+  usdCost: ["unitCost", "iof", "licenseCost"],
+  unitCost: ["iof", "licenseCost"],
+  iof: ["licenseCost"],
+};
+
+const defaultRow = (ref: LicenseReference): RowInputs => ({
+  usdCost: centsToInput(ref.usdCostCents),
+  unitCost: ref.unitCostCents === null ? null : centsToInput(ref.unitCostCents),
+  iof: null,
+  licenseCost: null,
   quantity: "",
   unitPrice: centsToInput(ref.zeroMarginCents),
-  months: "12",
-  licenseCostOverride: "",
-  clientTotalOverride: "",
 });
 
 const toCents = (v: string) => parseMoneyToCents(v) ?? 0;
-/** Câmbio aceita até 4 casas (ex.: 5,4321) — sem arredondar para centavos. */
+/** Valor do dólar aceita até 4 casas (ex.: 5,4321) — sem arredondar para centavos. */
 const toFxCents = (v: string) => (parseDecimal(v) ?? 0) * 100;
-/** Campos de ajuste manual: vazio = sem ajuste (usa a fórmula). */
-const toOverrideCents = (v: string) => (v.trim() === "" ? null : parseMoneyToCents(v));
+/** Campo fórmula/valor: null ou vazio = fórmula. */
+const toOverrideCents = (v: string | null) => (v === null || v.trim() === "" ? null : parseMoneyToCents(v));
 const toInt = (v: string) => {
   const n = parseInt(v.replace(/[^\d]/g, ""), 10);
   return Number.isFinite(n) ? n : 0;
 };
 
+const MODES = {
+  mensal: { reference: MONTHLY_LICENSE_REFERENCE, months: 1 },
+  anual: { reference: ANNUAL_LICENSE_REFERENCE, months: LICENSE_CALC_MONTHS },
+} as const;
+
 /**
  * Calculadora de proposta — réplica das abas "Mensal" e "Anual" de
- * Calculadora_De_Licencas.xlsx (lógica em src/lib/calc.ts). Ferramenta de
+ * Calculadora_De_Licencas (lógica em src/lib/calc.ts). Ferramenta de
  * simulação: não lê nem grava nada no banco.
  */
 export function LicenseCalculator() {
   const [mode, setMode] = useState<Mode>("mensal");
-  const [months, setMonths] = useState("12");
-  const [monthlyRows, setMonthlyRows] = useState<RowInputs[]>(() => MONTHLY_LICENSE_REFERENCE.map(emptyRow));
-  const [annualRows, setAnnualRows] = useState<RowInputs[]>(() => ANNUAL_LICENSE_REFERENCE.map(emptyRow));
+  const [rowsByMode, setRowsByMode] = useState<Record<Mode, RowInputs[]>>(() => ({
+    mensal: MONTHLY_LICENSE_REFERENCE.map(defaultRow),
+    anual: ANNUAL_LICENSE_REFERENCE.map(defaultRow),
+  }));
 
-  const reference = mode === "mensal" ? MONTHLY_LICENSE_REFERENCE : ANNUAL_LICENSE_REFERENCE;
-  const setRows = mode === "mensal" ? setMonthlyRows : setAnnualRows;
+  /** Valor do dólar (D): um só por aba, vale para todas as licenças. */
+  const [fxByMode, setFxByMode] = useState<Record<Mode, string>>(() => ({
+    mensal: centsToInput(DEFAULT_FX_RATE_CENTS),
+    anual: centsToInput(DEFAULT_FX_RATE_CENTS),
+  }));
 
-  function patch(index: number, field: keyof RowInputs, value: string) {
-    setRows((rs) => rs.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
+  const { reference, months } = MODES[mode];
+  const rows = rowsByMode[mode];
+  const fxRate = fxByMode[mode];
+  const fxRateCents = toFxCents(fxRate);
+
+  function updateRow(index: number, fn: (r: RowInputs) => RowInputs) {
+    setRowsByMode((s) => ({ ...s, [mode]: s[mode].map((r, i) => (i === index ? fn(r) : r)) }));
   }
 
-  function applyReference(index: number, cents: number) {
-    setMonthlyRows((rs) => (mode === "mensal" ? rs.map((r, i) => (i === index ? { ...r, unitPrice: centsToInput(cents) } : r)) : rs));
-    setAnnualRows((rs) => (mode === "anual" ? rs.map((r, i) => (i === index ? { ...r, unitPrice: centsToInput(cents) } : r)) : rs));
+  function patch(index: number, field: Field, value: string | null) {
+    updateRow(index, (r) => {
+      let next: RowInputs = { ...r, [field]: value };
+      for (const f of DOWNSTREAM[field] ?? []) next = { ...next, [f]: null };
+      return next;
+    });
   }
 
-  const monthlyComputed = useMemo(
+  /** Novo valor do dólar: o custo de todas as licenças volta à fórmula (C × D → IOF → custo). */
+  function changeFx(value: string) {
+    setFxByMode((s) => ({ ...s, [mode]: value }));
+    setRowsByMode((s) => ({ ...s, [mode]: s[mode].map((r) => ({ ...r, unitCost: null, iof: null, licenseCost: null })) }));
+  }
+
+  function resetDefaults() {
+    setRowsByMode((s) => ({ ...s, [mode]: reference.map(defaultRow) }));
+    setFxByMode((s) => ({ ...s, [mode]: centsToInput(DEFAULT_FX_RATE_CENTS) }));
+  }
+
+  const computed = useMemo(
     () =>
-      monthlyRows.map((r, i) =>
-        computeMonthlyLicenseRow(
+      rows.map((r, i) =>
+        computeLicenseRow(
           {
-            name: MONTHLY_LICENSE_REFERENCE[i].name,
+            name: reference[i].name,
             usdCostCents: toCents(r.usdCost),
-            fxRateCents: toFxCents(r.fxRate),
+            fxRateCents,
+            unitCostOverrideCents: toOverrideCents(r.unitCost),
+            iofOverrideCents: toOverrideCents(r.iof),
+            licenseCostOverrideCents: toOverrideCents(r.licenseCost),
             quantity: toInt(r.quantity),
             unitPriceCents: toCents(r.unitPrice),
-            licenseCostOverrideCents: toOverrideCents(r.licenseCostOverride),
-            clientTotalOverrideCents: toOverrideCents(r.clientTotalOverride),
           },
-          toInt(months) || 12,
+          months,
         ),
       ),
-    [monthlyRows, months],
+    [rows, reference, months, fxRateCents],
   );
 
-  const annualComputed = useMemo(
-    () =>
-      annualRows.map((r, i) =>
-        computeAnnualLicenseRow({
-          name: ANNUAL_LICENSE_REFERENCE[i].name,
-          usdCostCents: toCents(r.usdCost),
-          fxRateCents: toFxCents(r.fxRate),
-          quantity: toInt(r.quantity),
-          months: toInt(r.months) || 12,
-          unitPriceCents: toCents(r.unitPrice),
-          licenseCostOverrideCents: toOverrideCents(r.licenseCostOverride),
-          clientTotalOverrideCents: toOverrideCents(r.clientTotalOverride),
-        }),
-      ),
-    [annualRows],
+  const quantities = useMemo(() => rows.map((r) => toInt(r.quantity)), [rows]);
+  const totals = useMemo(() => sumLicenseRows(computed, quantities), [computed, quantities]);
+  /** Licenças da aba atual, para a proposta automatizada. */
+  const proposalLicenses = useMemo(
+    () => rows.map((r, i) => ({ name: reference[i].name, quantity: quantities[i], unitPriceCents: toCents(r.unitPrice) })),
+    [rows, reference, quantities],
   );
-
-  const monthlyTotals = useMemo(() => sumMonthlyLicenseRows(monthlyComputed), [monthlyComputed]);
-  const annualTotals = useMemo(() => sumAnnualLicenseRows(annualComputed), [annualComputed]);
-  const totalQuantity = useMemo(() => monthlyRows.reduce((s, r) => s + toInt(r.quantity), 0), [monthlyRows]);
-  const support = useMemo(() => monthlySupportAddon(totalQuantity), [totalQuantity]);
-  const grandClientCents = monthlyTotals.clientTotalCents + support.supportCents;
-  const grandResultCents = monthlyTotals.resultCents + support.netSupportCents;
+  const summary = licenseProposalSummary(totals.clientTotalCents, totals.quantity, months);
+  const period = mode === "mensal" ? "mensal" : "anual";
 
   return (
     <div className="grid grid-cols-1 gap-4">
-      <div className="grid min-w-0 grid-cols-1 gap-4">
-        <Card className="animate-fade-up">
-          <CardHeader
-            title="Calculadora de proposta — licenças de IA"
-            description="Custo em dólar → custo em reais (c/ IOF) → preço ao cliente → resultado e margem. Mesma lógica da planilha Calculadora_De_Licencas."
-            action={<ModeToggle mode={mode} onChange={setMode} />}
+      <Card className="animate-fade-up min-w-0">
+        <CardHeader
+          title="Calculadora de proposta — licenças de IA"
+          description={
+            mode === "mensal"
+              ? "Valores por mês. Mesma lógica da planilha Calculadora_De_Licencas."
+              : `Valores de ${LICENSE_CALC_MONTHS} meses (mensal × ${LICENSE_CALC_MONTHS}). Mesma lógica da planilha Calculadora_De_Licencas.`
+          }
+          action={<ModeToggle mode={mode} onChange={setMode} />}
+        />
+
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-4 text-xs text-mist/50">
+          <label className="flex items-center gap-2 text-mist/70">
+            Valor do dólar
+            <NumInput value={fxRate} onChange={changeFx} prefix="R$" ariaLabel="Valor do dólar" title="Vale para todas as licenças desta aba. Aceita até 4 casas (ex.: 5,4321)." />
+          </label>
+          <Legend />
+          <Button type="button" size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" onClick={resetDefaults}>
+            <RotateCcw className="size-3.5" aria-hidden />
+            Restaurar padrões
+          </Button>
+        </div>
+
+        <div className="overflow-x-auto px-3 py-4 sm:px-4">
+          <CalcTable
+            mode={mode}
+            reference={reference}
+            rows={rows}
+            computed={computed}
+            totals={totals}
+            onPatch={patch}
           />
+        </div>
 
-          {mode === "mensal" ? (
-            <div className="flex items-center justify-end gap-2 px-5 pt-4 text-xs text-mist/50">
-              <label htmlFor="calc-months">Meses de contrato (projeção)</label>
-              <input
-                id="calc-months"
-                inputMode="numeric"
-                value={months}
-                onChange={(e) => setMonths(e.target.value)}
-                className="h-8 w-14 rounded-md border border-white/10 bg-abyss-deep/60 px-2 text-right text-sm tabular text-mist outline-none focus:border-jelly-teal/60"
-              />
-            </div>
-          ) : null}
+        <div className="grid grid-cols-1 gap-4 border-t border-white/[0.06] px-5 py-4 sm:grid-cols-3">
+          <Stat label={`Valor total cliente ${period}`} value={money(summary.clientTotalCents)} hint="somente licenças" />
+          <Stat
+            label={`Suporte ${period}`}
+            value={money(summary.supportCents)}
+            hint={`${totals.quantity} ${totals.quantity === 1 ? "licença" : "licenças"}${summary.supportCents === 0 ? " · a partir de 5" : ""}`}
+          />
+          <Stat label={`Total ${period} (licenças + suporte)`} value={money(summary.grandTotalCents)} tone="positive" />
+        </div>
+      </Card>
 
-          <div className="overflow-x-auto px-5 py-5">
-            {mode === "mensal" ? (
-              <MensalTable rows={monthlyRows} computed={monthlyComputed} totals={monthlyTotals} months={toInt(months) || 12} onPatch={patch} />
-            ) : (
-              <AnualTable rows={annualRows} computed={annualComputed} totals={annualTotals} onPatch={patch} />
-            )}
-          </div>
+      <ReferencePanel reference={reference} onApply={(i, cents) => patch(i, "unitPrice", centsToInput(cents))} />
 
-          {mode === "mensal" ? (
-            <div className="grid grid-cols-2 gap-4 border-t border-white/[0.06] px-5 py-4 sm:grid-cols-4">
-              <Stat label={`Suporte (${totalQuantity} licenças)`} value={money(support.supportCents)} hint={`líquido ${money(support.netSupportCents)}`} />
-              <Stat label="Total cliente (c/ suporte)" value={money(grandClientCents)} />
-              <Stat
-                label="Resultado (c/ suporte)"
-                value={money(grandResultCents)}
-                tone={grandResultCents >= 0 ? "positive" : "negative"}
-              />
-              <Stat label="Margem geral" value={percent(grandClientCents > 0 ? grandResultCents / grandClientCents : null)} />
-            </div>
-          ) : null}
-        </Card>
-      </div>
-
-      <ReferencePanel reference={reference} onApply={applyReference} />
+      <ProposalBuilder billing={mode} licenses={proposalLicenses} supportMonthlyCents={supportFeeFor(totals.quantity)} />
     </div>
   );
 }
@@ -191,41 +224,77 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
   );
 }
 
+const ORANGE = "border-orange-400/50 bg-orange-400/10 focus:border-orange-300";
+const YELLOW_CELL = "bg-yellow-300/[0.06]";
+/** Nome da licença fixo à esquerda quando a tabela rola na horizontal. */
+const STICKY = "sticky left-0 z-20 bg-abyss";
+
+function Legend() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+      <span className="flex items-center gap-1.5">
+        <span className="size-2.5 rounded-sm border border-orange-400/60 bg-orange-400/30" /> preencher
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className="size-2.5 rounded-sm border border-white/15 bg-abyss-deep" /> fixo (editável)
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className="size-2.5 rounded-sm bg-yellow-300/40" /> automático
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className="font-medium text-warn">R$</span> valor digitado no lugar da fórmula
+      </span>
+    </div>
+  );
+}
+
 function NumInput({
   value,
   onChange,
   prefix,
   align = "right",
-  placeholder,
-  manual,
   title,
   size = "money",
+  tone = "fixed",
+  manual,
+  ariaLabel,
+  onBlur,
+  prefixNode,
 }: {
   value: string;
   onChange: (v: string) => void;
+  onBlur?: () => void;
   prefix?: string;
+  /** Substitui o prefixo (ex.: botão ↺ quando o valor foi digitado). */
+  prefixNode?: React.ReactNode;
   align?: "right" | "center";
-  placeholder?: string;
-  /** Valor digitado à mão (substitui a fórmula) — mesmo destaque da Planilha. */
-  manual?: boolean;
   title?: string;
-  /** "money" cabe R$ 999.999,99; "short" para quantidade/meses. */
-  size?: "money" | "short";
+  /** "money" cabe R$ 99.999,99; "small" para valores curtos (IOF); "short" para quantidade. */
+  size?: "money" | "small" | "short";
+  /** "input" = laranja (campo a preencher); "fixed" = valor fixo editável. */
+  tone?: "input" | "fixed";
+  /** Valor digitado no lugar da fórmula. */
+  manual?: boolean;
+  ariaLabel: string;
 }) {
   return (
     <div className="relative w-fit">
-      {prefix ? <span className="pointer-events-none absolute inset-y-0 left-2 z-10 flex items-center text-[11px] text-mist/45">{prefix}</span> : null}
+      {prefixNode ??
+        (prefix ? <span className="pointer-events-none absolute inset-y-0 left-1.5 z-10 flex items-center text-[10px] text-mist/45">{prefix}</span> : null)}
       <input
         inputMode="decimal"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
+        onFocus={(e) => e.target.select()}
+        onBlur={onBlur}
         title={title}
+        aria-label={ariaLabel}
         className={cn(
-          "h-8 rounded-md border border-white/10 bg-abyss-deep/60 text-sm tabular outline-none transition placeholder:text-mist/25 focus:border-jelly-teal/60 focus:shadow-[0_0_0_2px_rgb(53_232_200/0.12)]",
+          "h-8 rounded-md border text-[13px] tabular outline-none transition focus:shadow-[0_0_0_2px_rgb(53_232_200/0.12)]",
+          tone === "input" ? ORANGE : "border-white/10 bg-abyss-deep/60 focus:border-jelly-teal/60",
           manual ? "text-warn" : "text-mist",
-          size === "short" ? "w-16" : prefix === "US$" ? "w-[7.5rem]" : "w-28",
-          prefix ? (prefix === "US$" ? "pr-2 pl-9" : "pr-2 pl-7") : "px-2",
+          size === "short" ? "w-12" : size === "small" ? "w-[4.75rem]" : prefix === "US$" ? "w-[5.75rem]" : "w-[5.5rem]",
+          prefix ? (prefix === "US$" ? "pr-1.5 pl-8" : "pr-1.5 pl-6") : "px-1.5",
           align === "center" ? "text-center" : "text-right",
         )}
       />
@@ -233,222 +302,250 @@ function NumInput({
   );
 }
 
-function Th({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <th className={cn("px-2 py-2 text-left font-medium whitespace-nowrap", className)}>{children}</th>;
+/**
+ * Campo "fórmula ou valor": mostra sempre o valor em uso. Digitar fixa o valor
+ * (destacado); o botão ↺ volta à fórmula.
+ */
+function FormulaInput({
+  override,
+  formulaCents,
+  onChange,
+  formula,
+  ariaLabel,
+  size,
+}: {
+  override: string | null;
+  formulaCents: number;
+  onChange: (v: string | null) => void;
+  formula: string;
+  ariaLabel: string;
+  size?: "money" | "small";
+}) {
+  const manual = override !== null;
+  return (
+    <NumInput
+      value={override ?? centsToInput(formulaCents)}
+      onChange={(v) => onChange(v)}
+      onBlur={() => {
+        // Campo apagado ou inválido volta à fórmula ao sair.
+        if (override !== null && toOverrideCents(override) === null) onChange(null);
+      }}
+      prefix="R$"
+      prefixNode={
+        manual ? (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            aria-label={`Voltar ${ariaLabel} à fórmula`}
+            title={`Voltar à fórmula (${formula})`}
+            className="absolute inset-y-0 left-0.5 z-10 my-auto grid size-6 place-items-center rounded text-warn/80 transition hover:bg-white/10 hover:text-warn"
+          >
+            <RotateCcw className="size-3" aria-hidden />
+          </button>
+        ) : undefined
+      }
+      manual={manual}
+      size={size}
+      ariaLabel={ariaLabel}
+      title={manual ? `Valor fixo. Fórmula: ${formula} (↺ volta à fórmula)` : `Fórmula: ${formula}. Digite para fixar outro valor.`}
+    />
+  );
 }
 
-function Td({ children, className, colSpan }: { children: React.ReactNode; className?: string; colSpan?: number }) {
+function Th({ children, className, yellow }: { children: React.ReactNode; className?: string; yellow?: boolean }) {
   return (
-    <td colSpan={colSpan} className={cn("px-2 py-2 align-middle", className)}>
+    <th className={cn("px-1 py-2 text-right align-bottom font-medium leading-tight", yellow && "bg-yellow-300/[0.10] text-yellow-200/80", className)}>
+      {children}
+    </th>
+  );
+}
+
+function Td({ children, className, colSpan }: { children?: React.ReactNode; className?: string; colSpan?: number }) {
+  return (
+    <td colSpan={colSpan} className={cn("px-1 py-2 align-top", className)}>
       {children}
     </td>
   );
 }
 
-function ResultCell({ cents, hint }: { cents: number; hint?: string }) {
+/**
+ * Estrutura única de toda célula: linha de altura fixa (campo ou valor) +
+ * linha reservada para a observação — assim todos os campos ficam alinhados.
+ */
+function Slot({ children, hint, align = "start", title }: { children?: React.ReactNode; hint?: React.ReactNode; align?: "start" | "center" | "end"; title?: string }) {
+  const justify = align === "end" ? "justify-end text-right" : align === "center" ? "justify-center text-center" : "justify-start text-left";
   return (
-    <div className="text-right">
-      <p className={cn("tabular font-medium", cents < 0 ? "text-danger" : "text-mist")}>{money(cents)}</p>
-      {hint ? <p className="text-[11px] text-mist/40">{hint}</p> : null}
+    <div className="whitespace-nowrap">
+      <div className={cn("flex h-8 items-center", justify)}>{children}</div>
+      <p className={cn("mt-0.5 h-4 text-[11px] leading-4 font-normal text-mist/40", justify)} title={title}>
+        {hint}
+      </p>
     </div>
   );
 }
 
-function MensalTable({
-  rows,
-  computed,
-  totals,
-  months,
-  onPatch,
-}: {
-  rows: RowInputs[];
-  computed: ReturnType<typeof computeMonthlyLicenseRow>[];
-  totals: ReturnType<typeof sumMonthlyLicenseRows>;
-  months: number;
-  onPatch: (index: number, field: keyof RowInputs, value: string) => void;
-}) {
+function MoneyCell({ cents, hint, strong, signed }: { cents: number; hint?: string; strong?: boolean; signed?: boolean }) {
   return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="text-xs text-mist/45">
-          <Th>Licença</Th>
-          <Th>Custo US$</Th>
-          <Th>Câmbio</Th>
-          <Th className="text-right">Custo licença</Th>
-          <Th className="text-center">Qtd</Th>
-          <Th>Valor unitário</Th>
-          <Th className="text-right">Total cliente</Th>
-          <Th className="text-right">Resultado</Th>
-          <Th className="text-right">Margem</Th>
-          <Th className="text-right">Anual ({months}m)</Th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-white/[0.05]">
-        {rows.map((r, i) => {
-          const c = computed[i];
-          return (
-            <tr key={MONTHLY_LICENSE_REFERENCE[i].name}>
-              <Td className="font-medium whitespace-nowrap">{MONTHLY_LICENSE_REFERENCE[i].name}</Td>
-              <Td>
-                <NumInput value={r.usdCost} onChange={(v) => onPatch(i, "usdCost", v)} prefix="US$" />
-              </Td>
-              <Td>
-                <NumInput value={r.fxRate} onChange={(v) => onPatch(i, "fxRate", v)} prefix="R$" />
-              </Td>
-              <Td>
-                <NumInput
-                  value={r.licenseCostOverride}
-                  onChange={(v) => onPatch(i, "licenseCostOverride", v)}
-                  prefix="R$"
-                  placeholder={centsToInput(c.licenseCostCents)}
-                  manual={r.licenseCostOverride.trim() !== ""}
-                  title="Fórmula: custo × câmbio + IOF. Digite para fixar; apague para voltar à fórmula."
-                />
-                <p className="mt-0.5 text-[11px] text-mist/40">IOF {money(c.iofCents)}</p>
-              </Td>
-              <Td>
-                <NumInput value={r.quantity} onChange={(v) => onPatch(i, "quantity", v)} align="center" size="short" />
-              </Td>
-              <Td>
-                <NumInput value={r.unitPrice} onChange={(v) => onPatch(i, "unitPrice", v)} prefix="R$" />
-              </Td>
-              <Td>
-                <NumInput
-                  value={r.clientTotalOverride}
-                  onChange={(v) => onPatch(i, "clientTotalOverride", v)}
-                  prefix="R$"
-                  placeholder={centsToInput(c.clientTotalCents)}
-                  manual={r.clientTotalOverride.trim() !== ""}
-                  title="Fórmula: quantidade × valor unitário. Digite para fixar; apague para voltar à fórmula."
-                />
-                <p className="mt-0.5 text-right text-[11px] text-mist/40">líq. {money(c.netTotalCents)}</p>
-              </Td>
-              <Td>
-                <ResultCell cents={c.resultCents} hint={`custo ${money(c.totalCostCents)}`} />
-              </Td>
-              <Td className="text-right tabular">{percent(c.margin)}</Td>
-              <Td className="text-right">
-                <p className="tabular">{money(c.annualClientCents)}</p>
-                <p className="text-[11px] text-mist/40">res. {money(c.annualResultCents)}</p>
-              </Td>
-            </tr>
-          );
-        })}
-      </tbody>
-      <tfoot>
-        <tr className="border-t border-white/[0.08] font-medium">
-          <Td colSpan={6} className="text-right text-xs text-mist/45">
-            Total
-          </Td>
-          <Td className="text-right">
-            <p className="tabular">{money(totals.clientTotalCents)}</p>
-            <p className="text-[11px] font-normal text-mist/40">líq. {money(totals.netTotalCents)}</p>
-          </Td>
-          <Td>
-            <ResultCell cents={totals.resultCents} hint={`custo ${money(totals.totalCostCents)}`} />
-          </Td>
-          <Td className="text-right tabular">{percent(totals.margin)}</Td>
-          <Td className="text-right">
-            <p className="tabular">{money(totals.annualClientCents)}</p>
-            <p className="text-[11px] font-normal text-mist/40">res. {money(totals.annualResultCents)}</p>
-          </Td>
-        </tr>
-      </tfoot>
-    </table>
+    <Slot align="end" hint={hint}>
+      <span className={cn("tabular", strong && "font-medium", signed && cents < 0 ? "text-danger" : "text-mist")}>{money(cents)}</span>
+    </Slot>
   );
 }
 
-function AnualTable({
+function CalcTable({
+  mode,
+  reference,
   rows,
   computed,
   totals,
   onPatch,
 }: {
+  mode: Mode;
+  reference: readonly LicenseReference[];
   rows: RowInputs[];
-  computed: ReturnType<typeof computeAnnualLicenseRow>[];
-  totals: ReturnType<typeof sumAnnualLicenseRows>;
-  onPatch: (index: number, field: keyof RowInputs, value: string) => void;
+  computed: LicenseCalcResult[];
+  totals: ReturnType<typeof sumLicenseRows>;
+  onPatch: (index: number, field: Field, value: string | null) => void;
 }) {
+  const anual = mode === "anual";
+  const tax = `${Math.round(NF_TAX_RATE * 100)}%`;
+  const iofPct = `${(IOF_RATE * 100).toLocaleString("pt-BR")}%`;
   return (
     <table className="w-full text-sm">
       <thead>
         <tr className="text-xs text-mist/45">
-          <Th>Licença</Th>
-          <Th>Custo US$</Th>
-          <Th>Câmbio</Th>
-          <Th className="text-right">Custo licença</Th>
-          <Th className="text-center">Meses</Th>
+          <Th className={cn("text-left", STICKY)}>Licença</Th>
+          <Th className="text-left">Custo dólar</Th>
+          <Th className="text-left">Valor unit.</Th>
+          <Th className="text-left">IOF</Th>
+          <Th className="text-left">Custo licença</Th>
           <Th className="text-center">Qtd</Th>
-          <Th>Valor unit. mensal</Th>
-          <Th className="text-right">Total cliente (anual)</Th>
-          <Th className="text-right">Resultado</Th>
-          <Th className="text-right">Margem</Th>
+          <Th className="text-left">Valor unitário{anual ? " (mês)" : ""}</Th>
+          <Th yellow>Valor total cliente {anual ? "anual" : "mensal"}</Th>
+          <Th yellow>Valor líquido <span className="font-normal opacity-70">(−{tax})</span></Th>
+          <Th yellow>Resultado</Th>
+          <Th>Margem</Th>
         </tr>
       </thead>
       <tbody className="divide-y divide-white/[0.05]">
         {rows.map((r, i) => {
           const c = computed[i];
+          const name = reference[i].name;
           return (
-            <tr key={ANNUAL_LICENSE_REFERENCE[i].name}>
-              <Td className="font-medium whitespace-nowrap">{ANNUAL_LICENSE_REFERENCE[i].name}</Td>
-              <Td>
-                <NumInput value={r.usdCost} onChange={(v) => onPatch(i, "usdCost", v)} prefix="US$" />
+            <tr key={name}>
+              <Td className={cn("min-w-[6rem]", STICKY)}>
+                <div className="flex h-8 items-center text-[13px] leading-tight font-medium">{name}</div>
               </Td>
               <Td>
-                <NumInput value={r.fxRate} onChange={(v) => onPatch(i, "fxRate", v)} prefix="R$" />
+                <Slot>
+                  <NumInput value={r.usdCost} onChange={(v) => onPatch(i, "usdCost", v)} prefix="US$" ariaLabel={`Custo dólar ${name}`} />
+                </Slot>
               </Td>
               <Td>
-                <NumInput
-                  value={r.licenseCostOverride}
-                  onChange={(v) => onPatch(i, "licenseCostOverride", v)}
-                  prefix="R$"
-                  placeholder={centsToInput(c.licenseCostCents)}
-                  manual={r.licenseCostOverride.trim() !== ""}
-                  title="Fórmula: custo × câmbio + IOF. Digite para fixar; apague para voltar à fórmula."
+                <Slot>
+                <FormulaInput
+                  override={r.unitCost}
+                  formulaCents={c.unitCostCents}
+                  onChange={(v) => onPatch(i, "unitCost", v)}
+                  formula="custo dólar × valor do dólar"
+                  ariaLabel={`Valor unitário em reais ${name}`}
                 />
-                <p className="mt-0.5 text-[11px] text-mist/40">IOF {money(c.iofCents)}</p>
+                </Slot>
               </Td>
               <Td>
-                <NumInput value={r.months} onChange={(v) => onPatch(i, "months", v)} align="center" size="short" />
-              </Td>
-              <Td>
-                <NumInput value={r.quantity} onChange={(v) => onPatch(i, "quantity", v)} align="center" size="short" />
-              </Td>
-              <Td>
-                <NumInput value={r.unitPrice} onChange={(v) => onPatch(i, "unitPrice", v)} prefix="R$" />
-              </Td>
-              <Td>
-                <NumInput
-                  value={r.clientTotalOverride}
-                  onChange={(v) => onPatch(i, "clientTotalOverride", v)}
-                  prefix="R$"
-                  placeholder={centsToInput(c.clientAnnualCents)}
-                  manual={r.clientTotalOverride.trim() !== ""}
-                  title="Fórmula: valor unitário × meses × quantidade. Digite para fixar; apague para voltar à fórmula."
+                <Slot>
+                <FormulaInput
+                  override={r.iof}
+                  formulaCents={c.iofCents}
+                  onChange={(v) => onPatch(i, "iof", v)}
+                  formula={`valor unit. × ${iofPct}`}
+                  size="small"
+                  ariaLabel={`IOF ${name}`}
                 />
-                <p className="mt-0.5 text-right text-[11px] text-mist/40">líq. {money(c.netCents)}</p>
+                </Slot>
               </Td>
               <Td>
-                <ResultCell cents={c.resultCents} hint={`custo ${money(c.totalCostCents)}`} />
+                <Slot
+                  hint={`total ${money(c.totalCostCents)}`}
+                  title={`Total custo${anual ? ` (${LICENSE_CALC_MONTHS} meses)` : ""}`}
+                >
+                <FormulaInput
+                  override={r.licenseCost}
+                  formulaCents={c.licenseCostCents}
+                  onChange={(v) => onPatch(i, "licenseCost", v)}
+                  formula="valor unit. + IOF"
+                  ariaLabel={`Custo da licença ${name}`}
+                />
+                </Slot>
               </Td>
-              <Td className="text-right tabular">{percent(c.margin)}</Td>
+              <Td>
+                <Slot align="center">
+                <NumInput
+                  value={r.quantity}
+                  onChange={(v) => onPatch(i, "quantity", v)}
+                  align="center"
+                  size="short"
+                  tone="input"
+                  ariaLabel={`Quantidade ${name}`}
+                />
+                </Slot>
+              </Td>
+              <Td>
+                <Slot hint={`líq. ${money(c.netUnitCents)}`}>
+                  <NumInput value={r.unitPrice} onChange={(v) => onPatch(i, "unitPrice", v)} prefix="R$" tone="input" ariaLabel={`Valor unitário ao cliente ${name}`} />
+                </Slot>
+              </Td>
+              <Td className={YELLOW_CELL}>
+                <MoneyCell cents={c.clientTotalCents} strong />
+              </Td>
+              <Td className={YELLOW_CELL}>
+                <MoneyCell cents={c.netTotalCents} hint={`imp. ${money(c.taxCents)}`} />
+              </Td>
+              <Td className={YELLOW_CELL}>
+                <MoneyCell cents={c.resultCents} strong signed />
+              </Td>
+              <Td>
+                <Slot align="end">
+                  <span className="tabular">{percent(c.margin)}</span>
+                </Slot>
+              </Td>
             </tr>
           );
         })}
       </tbody>
       <tfoot>
         <tr className="border-t border-white/[0.08] font-medium">
-          <Td colSpan={6} className="text-right text-xs text-mist/45">
-            Total
+          <Td className={STICKY}>
+            <Slot>
+              <span className="text-xs text-mist/45">Total {anual ? "anual" : "mensal"}</span>
+            </Slot>
           </Td>
-          <Td className="text-right">
-            <p className="tabular">{money(totals.clientAnnualCents)}</p>
-            <p className="text-[11px] font-normal text-mist/40">líq. {money(totals.netCents)}</p>
+          <Td colSpan={4}>
+            <Slot align="end">
+              <span className="mr-1 text-[11px] font-normal text-mist/40">custo total</span>
+              <span className="tabular">{money(totals.totalCostCents)}</span>
+            </Slot>
           </Td>
           <Td>
-            <ResultCell cents={totals.resultCents} hint={`custo ${money(totals.totalCostCents)}`} />
+            <Slot align="center">
+              <span className="tabular">{totals.quantity}</span>
+            </Slot>
           </Td>
-          <Td className="text-right tabular">{percent(totals.margin)}</Td>
+          <Td />
+          <Td className={YELLOW_CELL}>
+            <MoneyCell cents={totals.clientTotalCents} strong />
+          </Td>
+          <Td className={YELLOW_CELL}>
+            <MoneyCell cents={totals.netTotalCents} hint={`imp. ${money(totals.taxCents)}`} />
+          </Td>
+          <Td className={YELLOW_CELL}>
+            <MoneyCell cents={totals.resultCents} strong signed />
+          </Td>
+          <Td>
+            <Slot align="end">
+              <span className="tabular">{percent(totals.margin)}</span>
+            </Slot>
+          </Td>
         </tr>
       </tfoot>
     </table>
@@ -482,7 +579,7 @@ function ReferencePanel({
       </Card>
 
       <Card className="animate-fade-up [animation-delay:100ms]">
-        <CardHeader title="Licitação" description="Tabela de apoio — preço de referência para editais" />
+        <CardHeader title="Licitação - 20%" description="Tabela de apoio — preço de referência para editais" />
         <ul className="divide-y divide-white/[0.05] text-sm">
           {reference.map((r, i) => (
             <li key={r.name} className="flex items-center justify-between gap-3 px-5 py-3">
@@ -499,7 +596,8 @@ function ReferencePanel({
       </Card>
 
       <Card className="animate-fade-up px-5 py-4 text-xs text-mist/45 [animation-delay:140ms]">
-        IOF 3,5% e imposto 12% já entram automaticamente no cálculo — igual à planilha. &ldquo;Usar&rdquo; preenche o valor unitário da licença correspondente.
+        IOF 3,5% e imposto 12% entram automaticamente. A margem é calculada só sobre as licenças — o suporte não entra.
+        &ldquo;Usar&rdquo; preenche o valor unitário da licença correspondente.
       </Card>
     </div>
   );

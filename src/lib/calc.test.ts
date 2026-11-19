@@ -1,17 +1,20 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import {
-  computeAnnualLicenseRow,
+  ANNUAL_LICENSE_REFERENCE,
   computeContract,
-  computeMonthlyLicenseRow,
+  computeLicenseRow,
+  DEFAULT_FX_RATE_CENTS,
   goalContribution,
   goalMonthOf,
   goalProgress,
-  monthlySupportAddon,
-  sumAnnualLicenseRows,
-  sumMonthlyLicenseRows,
+  licenseProposalSummary,
+  MONTHLY_LICENSE_REFERENCE,
+  sumLicenseRows,
   supportFeeFor,
   type ContractValues,
+  type LicenseCalcRowInput,
+  type LicenseReference,
 } from "./calc";
 
 /**
@@ -152,61 +155,156 @@ describe("barra de progresso", () => {
   it("meta zero não divide por zero", () => assert.equal(goalProgress(0, [100]).ratio, 0));
 });
 
-describe("calculadora de licenças — mensal", () => {
-  // Custo US$ 25 · câmbio R$ 5 · 4 licenças · unitário R$ 171 (referência zero margem)
-  const row = computeMonthlyLicenseRow({ name: "Claude Team Standard", usdCostCents: 25_00, fxRateCents: 5_00, quantity: 4, unitPriceCents: 171_00 }, 12);
+/** Linha com os valores padrão da planilha (C, D, E fixos) + quantidade e valor unitário. */
+const sheetRow = (ref: LicenseReference, quantity: number, extra: Partial<LicenseCalcRowInput> = {}): LicenseCalcRowInput => ({
+  name: ref.name,
+  usdCostCents: ref.usdCostCents,
+  fxRateCents: DEFAULT_FX_RATE_CENTS,
+  unitCostOverrideCents: ref.unitCostCents,
+  quantity,
+  unitPriceCents: ref.zeroMarginCents,
+  ...extra,
+});
 
-  it("E = custo dólar × câmbio", () => close(row.unitCostCents, 125_00));
-  it("F = E × 3,5% (IOF)", () => close(row.iofCents, 437.5));
-  it("G = E + F", () => close(row.licenseCostCents, 125_00 + 437.5));
-  it("I = G × quantidade", () => close(row.totalCostCents, (125_00 + 437.5) * 4));
-  it("K = unitário × 12% (imposto)", () => close(row.taxCents, 20_52));
-  it("L = unitário − K", () => close(row.netUnitCents, 150_48));
-  it("M = quantidade × unitário", () => close(row.clientTotalCents, 684_00));
-  it("N = quantidade × L", () => close(row.netTotalCents, 601_92));
-  it("O = N − I (resultado)", () => close(row.resultCents, 601_92 - (125_00 + 437.5) * 4));
-  it("P = O ÷ M (margem)", () => close(row.margin!, row.resultCents / 684_00));
-  it("Q = M × meses", () => close(row.annualClientCents, 684_00 * 12));
-  it("R = O × meses", () => close(row.annualResultCents, row.resultCents * 12));
+describe("calculadora de licenças — mensal (= aba Mensal da planilha)", () => {
+  // Planilha: Standard 4 × R$ 171, Premium 1 × R$ 849, ChatGPT 0.
+  const [stdRef, premRef, gptRef] = MONTHLY_LICENSE_REFERENCE;
+  const std = computeLicenseRow(sheetRow(stdRef, 4), 1);
+  const prem = computeLicenseRow(sheetRow(premRef, 1), 1);
+  const gpt = computeLicenseRow(sheetRow(gptRef, 0), 1);
+  const totals = sumLicenseRows([std, prem, gpt], [4, 1, 0]);
 
-  it("quantidade zero → resultado e margem zerados/nulos", () => {
-    const zero = computeMonthlyLicenseRow({ name: "ChatGPT Business", usdCostCents: 20_00, fxRateCents: 5_00, quantity: 0, unitPriceCents: 168_00 }, 12);
-    assert.equal(zero.totalCostCents, 0);
-    assert.equal(zero.clientTotalCents, 0);
-    assert.equal(zero.resultCents, 0);
-    assert.equal(zero.margin, null);
-    assert.equal(zero.annualClientCents, 0);
+  it("E fixo da planilha (138) · F = E × 3,5% · G = E + F", () => {
+    close(std.unitCostCents, 138_00);
+    close(std.iofCents, 4_83);
+    close(std.licenseCostCents, 142_83);
+  });
+  it("I = G × H", () => close(std.totalCostCents, 571_32));
+  it("K = J × 12% · L = J − K", () => {
+    close(std.taxUnitCents, 20_52);
+    close(std.netUnitCents, 150_48);
+  });
+  it("M = H × J (valor total cliente mensal)", () => close(std.clientTotalCents, 684_00));
+  it("N = H × L (valor líquido)", () => close(std.netTotalCents, 601_92));
+  it("O = N − I (resultado)", () => close(std.resultCents, 30_60));
+  it("P = O ÷ M (margem)", () => close(std.margin!, 0.044736842105263));
+
+  it("Premium igual à planilha", () => {
+    close(prem.licenseCostCents, 712_08);
+    close(prem.clientTotalCents, 849_00);
+    close(prem.netTotalCents, 747_12);
+    close(prem.resultCents, 35_04);
   });
 
-  it("totais somam as linhas e recalculam a margem geral", () => {
-    const b = computeMonthlyLicenseRow({ name: "ChatGPT Business", usdCostCents: 20_00, fxRateCents: 5_00, quantity: 2, unitPriceCents: 168_00 }, 12);
-    const totals = sumMonthlyLicenseRows([row, b]);
-    close(totals.clientTotalCents, row.clientTotalCents + b.clientTotalCents);
-    close(totals.resultCents, row.resultCents + b.resultCents);
-    close(totals.margin!, totals.resultCents / totals.clientTotalCents);
+  it("ChatGPT: E = C × D quando não há valor fixo", () => {
+    close(gpt.unitCostCents, 100_00);
+    close(gpt.licenseCostCents, 103_50);
   });
 
-  it("ajuste manual do custo da licença (G) substitui a fórmula e flui pro custo total (I)", () => {
-    const r = computeMonthlyLicenseRow(
-      { name: "Claude Team Standard", usdCostCents: 25_00, fxRateCents: 5_00, quantity: 4, unitPriceCents: 171_00, licenseCostOverrideCents: 150_00 },
-      12,
-    );
+  it("quantidade zero → tudo zerado e margem vazia", () => {
+    assert.equal(gpt.totalCostCents, 0);
+    assert.equal(gpt.clientTotalCents, 0);
+    assert.equal(gpt.netTotalCents, 0);
+    assert.equal(gpt.resultCents, 0);
+    assert.equal(gpt.margin, null);
+  });
+
+  it("totais = linha 9 da planilha (margem só das licenças)", () => {
+    assert.equal(totals.quantity, 5);
+    close(totals.totalCostCents, 1_283_40);
+    close(totals.clientTotalCents, 1_533_00);
+    close(totals.netTotalCents, 1_349_04);
+    close(totals.resultCents, 65_64);
+    close(totals.margin!, 0.042818003913894);
+  });
+
+  it("anual (12 meses) = mensal × 12 (colunas Q e R)", () => {
+    const a = computeLicenseRow(sheetRow(stdRef, 4), 12);
+    close(a.clientTotalCents, 8_208_00);
+    close(a.resultCents, 367_20);
+    close(a.margin!, std.margin!);
+  });
+
+  it("indicadores: valor cliente + suporte (pela quantidade) = total", () => {
+    const s = licenseProposalSummary(totals.clientTotalCents, totals.quantity, 1);
+    close(s.clientTotalCents, 1_533_00);
+    assert.equal(s.supportCents, 490_00);
+    close(s.grandTotalCents, 2_023_00);
+  });
+});
+
+describe("calculadora de licenças — valores fixos editáveis", () => {
+  const ref = MONTHLY_LICENSE_REFERENCE[0];
+
+  it("sem valor fixo em E, câmbio novo recalcula E, IOF e custo", () => {
+    const r = computeLicenseRow(sheetRow(ref, 2, { unitCostOverrideCents: null, fxRateCents: 5_40 }), 1);
+    close(r.unitCostCents, 135_00);
+    close(r.iofCents, 135_00 * 0.035);
+    close(r.licenseCostCents, 135_00 * 1.035);
+    close(r.totalCostCents, 135_00 * 1.035 * 2);
+  });
+
+  it("câmbio com 4 casas sem arredondar", () => {
+    const r = computeLicenseRow(sheetRow(ref, 1, { unitCostOverrideCents: null, fxRateCents: 543.21 }), 1);
+    close(r.unitCostCents, 25 * 543.21);
+  });
+
+  it("IOF digitado prevalece e entra no custo da licença", () => {
+    const r = computeLicenseRow(sheetRow(ref, 4, { iofOverrideCents: 5_00 }), 1);
+    close(r.iofCents, 5_00);
+    close(r.licenseCostCents, 143_00);
+    close(r.totalCostCents, 572_00);
+    close(r.resultCents, 601_92 - 572_00);
+  });
+
+  it("custo licença digitado prevalece sobre E + F", () => {
+    const r = computeLicenseRow(sheetRow(ref, 4, { licenseCostOverrideCents: 150_00 }), 1);
     close(r.licenseCostCents, 150_00);
-    close(r.totalCostCents, 150_00 * 4);
+    close(r.totalCostCents, 600_00);
+    close(r.resultCents, 1_92);
   });
 
-  it("ajuste manual do total cliente substitui quantidade × unitário e recalcula líquido/resultado", () => {
-    const r = computeMonthlyLicenseRow(
-      { name: "Claude Team Standard", usdCostCents: 25_00, fxRateCents: 5_00, quantity: 4, unitPriceCents: 171_00, clientTotalOverrideCents: 700_00 },
-      12,
-    );
-    close(r.clientTotalCents, 700_00);
-    close(r.netTotalCents, 700_00 - 700_00 * 0.12);
-    close(r.resultCents, r.netTotalCents - r.totalCostCents);
-    close(r.margin!, r.resultCents / 700_00);
+  it("valor unitário zero com quantidade → margem vazia (sem divisão por zero)", () => {
+    const r = computeLicenseRow(sheetRow(ref, 3, { unitPriceCents: 0 }), 1);
+    assert.equal(r.clientTotalCents, 0);
+    assert.equal(r.margin, null);
+    close(r.resultCents, -142_83 * 3);
   });
+});
 
-  it("suporte: taxa fixa por faixa de quantidade total de licenças", () => {
+describe("calculadora de licenças — anual (= aba Anual da planilha)", () => {
+  // Planilha: Standard 6 × R$ 136/mês, 12 meses.
+  const [stdRef, premRef, gptRef] = ANNUAL_LICENSE_REFERENCE;
+  const std = computeLicenseRow(sheetRow(stdRef, 6), 12);
+
+  it("E fixo (110) · F · G", () => {
+    close(std.unitCostCents, 110_00);
+    close(std.iofCents, 3_85);
+    close(std.licenseCostCents, 113_85);
+  });
+  it("J = G × 12 × qtd (custo anual)", () => close(std.totalCostCents, 8_197_20));
+  it("N = J × 12 × qtd (valor cliente anual)", () => close(std.clientTotalCents, 9_792_00));
+  it("O = N × 12% · P = N − O (líquido)", () => {
+    close(std.taxCents, 1_175_04);
+    close(std.netTotalCents, 8_616_96);
+  });
+  it("Q = P − J (resultado)", () => close(std.resultCents, 419_76));
+  it("R = Q ÷ N (margem)", () => close(std.margin!, 0.042867647058824));
+
+  it("totais e indicadores anuais (suporte × 12)", () => {
+    const prem = computeLicenseRow(sheetRow(premRef, 0), 12);
+    const gpt = computeLicenseRow(sheetRow(gptRef, 0), 12);
+    const totals = sumLicenseRows([std, prem, gpt], [6, 0, 0]);
+    close(totals.clientTotalCents, 9_792_00);
+    close(totals.resultCents, 419_76);
+    const s = licenseProposalSummary(totals.clientTotalCents, totals.quantity, 12);
+    assert.equal(s.supportCents, 490_00 * 12);
+    close(s.grandTotalCents, 9_792_00 + 5_880_00);
+  });
+});
+
+describe("suporte por faixa de quantidade", () => {
+  it("taxa fixa por faixa de quantidade total de licenças", () => {
     assert.equal(supportFeeFor(0), 0);
     assert.equal(supportFeeFor(4), 0);
     assert.equal(supportFeeFor(5), 490_00);
@@ -219,58 +317,6 @@ describe("calculadora de licenças — mensal", () => {
     assert.equal(supportFeeFor(50), 2_800_00);
     assert.equal(supportFeeFor(51), 4_500_00);
     assert.equal(supportFeeFor(200), 4_500_00);
-  });
-
-  it("suporte líquido do imposto (12%)", () => {
-    const addon = monthlySupportAddon(15);
-    close(addon.supportCents, 990_00);
-    close(addon.netSupportCents, 990_00 - 990_00 * 0.12);
-  });
-});
-
-describe("calculadora de licenças — anual", () => {
-  // Custo US$ 25 · câmbio R$ 5 · 6 licenças · 12 meses · unitário R$ 136 (referência zero margem)
-  const row = computeAnnualLicenseRow({ name: "Claude Team Standard", usdCostCents: 25_00, fxRateCents: 5_00, quantity: 6, months: 12, unitPriceCents: 136_00 });
-
-  it("E = custo dólar × câmbio", () => close(row.unitCostCents, 125_00));
-  it("J = (E + IOF) × meses × quantidade", () => close(row.totalCostCents, (125_00 + 437.5) * 12 * 6));
-  it("K = quantidade × E × meses (custo cartão, sem IOF)", () => close(row.cardCostCents, 6 * 125_00 * 12));
-  it("M = unitário × meses", () => close(row.unitPriceAnnualCents, 136_00 * 12));
-  it("N = M × quantidade", () => close(row.clientAnnualCents, 136_00 * 12 * 6));
-  it("O = N × 12% (imposto)", () => close(row.taxCents, row.clientAnnualCents * 0.12));
-  it("P = N − O", () => close(row.netCents, row.clientAnnualCents - row.taxCents));
-  it("Q = P − J (resultado, pode ser negativo)", () => close(row.resultCents, row.netCents - row.totalCostCents));
-  it("R = Q ÷ N (margem)", () => close(row.margin!, row.resultCents / row.clientAnnualCents));
-
-  it("quantidade zero → tudo zerado e margem nula", () => {
-    const zero = computeAnnualLicenseRow({ name: "ChatGPT Business", usdCostCents: 20_00, fxRateCents: 5_00, quantity: 0, months: 12, unitPriceCents: 168_00 });
-    assert.equal(zero.unitPriceAnnualCents, 0);
-    assert.equal(zero.clientAnnualCents, 0);
-    assert.equal(zero.netCents, 0);
-    assert.equal(zero.resultCents, 0);
-    assert.equal(zero.margin, null);
-  });
-
-  it("ajuste manual do custo da licença (G) substitui a fórmula e flui pro custo total (J)", () => {
-    const r = computeAnnualLicenseRow({ name: "Claude Team Standard", usdCostCents: 25_00, fxRateCents: 5_00, quantity: 6, months: 12, unitPriceCents: 136_00, licenseCostOverrideCents: 150_00 });
-    close(r.licenseCostCents, 150_00);
-    close(r.totalCostCents, 150_00 * 12 * 6);
-  });
-
-  it("ajuste manual do total cliente substitui unitário × meses × quantidade e recalcula líquido/resultado", () => {
-    const r = computeAnnualLicenseRow({ name: "Claude Team Standard", usdCostCents: 25_00, fxRateCents: 5_00, quantity: 6, months: 12, unitPriceCents: 136_00, clientTotalOverrideCents: 9_000_00 });
-    close(r.clientAnnualCents, 9_000_00);
-    close(r.netCents, 9_000_00 - 9_000_00 * 0.12);
-    close(r.resultCents, r.netCents - r.totalCostCents);
-    close(r.margin!, r.resultCents / 9_000_00);
-  });
-
-  it("totais somam as linhas e recalculam a margem geral", () => {
-    const b = computeAnnualLicenseRow({ name: "ChatGPT Business", usdCostCents: 20_00, fxRateCents: 5_00, quantity: 3, months: 12, unitPriceCents: 168_00 });
-    const totals = sumAnnualLicenseRows([row, b]);
-    close(totals.clientAnnualCents, row.clientAnnualCents + b.clientAnnualCents);
-    close(totals.resultCents, row.resultCents + b.resultCents);
-    close(totals.margin!, totals.resultCents / totals.clientAnnualCents);
   });
 });
 

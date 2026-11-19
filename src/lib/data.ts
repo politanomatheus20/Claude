@@ -31,14 +31,14 @@ export async function listContracts() {
 const byKind = (a: Contract, b: Contract) => (a.kind === b.kind ? 0 : a.kind === "principal" ? -1 : 1);
 
 export async function getDashboard(month: string) {
-  const all = await listContracts();
-  const goal = await db.query.goals.findFirst({ where: eq(goals.month, month) });
+  // Contratos e metas em paralelo (uma ida ao banco em vez de três em sequência).
+  const [all, goalRows] = await Promise.all([listContracts(), db.select().from(goals)]);
+  const goal = goalRows.find((g) => g.month === month);
 
   const ofMonth = all.filter((c) => goalMonthOf(c) === month);
   const progress = goalProgress(goal?.targetCents ?? 0, ofMonth.map((c) => c.calc.goalContribution));
 
   const months = Array.from({ length: 6 }, (_, i) => format(addMonths(parse(month, "yyyy-MM", new Date()), i - 5), "yyyy-MM"));
-  const goalRows = await db.select().from(goals);
   const goalMap = new Map(goalRows.map((g) => [g.month, g.targetCents]));
   const history = months.map((m) => ({
     month: m,
@@ -66,7 +66,7 @@ export async function getDashboard(month: string) {
 
 export async function listClients(query?: string) {
   await requireUser();
-  const all = await listContracts();
+  const [all, allClients] = await Promise.all([listContracts(), db.select().from(clients)]);
   const q = query?.trim().toLowerCase();
   const byClient = new Map<string, { client: Client; contracts: ContractRow[] }>();
   for (const c of all) {
@@ -75,7 +75,7 @@ export async function listClients(query?: string) {
     byClient.set(c.clientId, entry);
   }
   // clientes sem contrato
-  for (const cl of await db.select().from(clients)) {
+  for (const cl of allClients) {
     if (!byClient.has(cl.id)) byClient.set(cl.id, { client: cl, contracts: [] });
   }
   return [...byClient.values()]
@@ -90,24 +90,21 @@ export async function listClients(query?: string) {
 /** Em cache por requisição: a página e o generateMetadata compartilham a mesma leitura. */
 export const getClient = cache(async (id: string) => {
   await requireUser();
-  const client = await db.query.clients.findFirst({ where: eq(clients.id, id) });
-  if (!client) return null;
-
-  const [cts, clientInvoices, clientFiles, people] = await Promise.all([
+  // Tudo em paralelo: uma ida ao banco em vez de três em sequência.
+  const [client, cts, clientInvoices, clientFiles, people, versions] = await Promise.all([
+    db.query.clients.findFirst({ where: eq(clients.id, id) }),
     db.select().from(contracts).where(eq(contracts.clientId, id)).orderBy(asc(contracts.kind), asc(contracts.startAt)),
     db.select().from(invoices).where(eq(invoices.clientId, id)).orderBy(desc(invoices.issueDate)),
     db.select().from(files).where(eq(files.clientId, id)).orderBy(desc(files.createdAt)),
     db.select({ id: users.id, name: users.name }).from(users),
+    db
+      .select()
+      .from(contractVersions)
+      .innerJoin(contracts, eq(contractVersions.contractId, contracts.id))
+      .where(eq(contracts.clientId, id))
+      .orderBy(desc(contractVersions.createdAt)),
   ]);
-
-  const versions = cts.length
-    ? await db
-        .select()
-        .from(contractVersions)
-        .innerJoin(contracts, eq(contractVersions.contractId, contracts.id))
-        .where(eq(contracts.clientId, id))
-        .orderBy(desc(contractVersions.createdAt))
-    : [];
+  if (!client) return null;
 
   const names = new Map(people.map((p) => [p.id, p.name]));
   const fileMap = new Map(clientFiles.map((f) => [f.id, f]));

@@ -78,6 +78,7 @@ export default async function ClientsPage({ searchParams }: PageProps<"/clientes
                     <td className={cn(td, "sticky left-0 z-10 min-w-[10rem] max-w-[15rem] border-r border-r-white/[0.08] bg-abyss px-4 py-1.5 whitespace-normal group-hover:bg-surface")}>
                       <Link
                         href={`/clientes/${client.id}`}
+                        prefetch={false}
                         title={`${client.name}${client.document ? ` · CNPJ ${client.document}` : ""}`}
                         className="flex items-center gap-1.5 font-medium hover:text-jelly-teal"
                       >

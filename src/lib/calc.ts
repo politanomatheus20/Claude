@@ -208,35 +208,58 @@ export const goalMonthOf = (c: { signedAt: string | null; startAt: string | null
 
 /**
  * Calculadora de Proposta — Licenças de IA.
- * Réplica EXATA das abas "Mensal" e "Anual" de "Calculadora_De_Licencas.xlsx".
- * Ferramenta de simulação (não persiste no banco); valores em centavos.
+ * Réplica das abas "Mensal" e "Anual" de "Calculadora_De_Licencas (1).xlsx".
+ * Ferramenta de simulação (não persiste no banco); valores em centavos, sem
+ * arredondamento intermediário (arredonda só na exibição, como o Excel).
+ *
+ * Por linha de licença:
+ *   C  Custo dólar        fixo editável
+ *   D  Valor do dólar     fixo editável
+ *   E  Valor unit. (R$)   = C × D            | valor fixo/digitado
+ *   F  IOF                = E × 3,5%         | valor digitado
+ *   G  Custo licença      = E + F            | valor digitado
+ *   H  Quantidade         ENTRADA (laranja)
+ *   J  Valor unitário     ENTRADA (laranja) — preço mensal por licença ao cliente
+ * Mensal:  I = G × H · K = J × 12% · L = J − K · M = H × J · N = H × L · O = N − I · P = O ÷ M
+ * Anual:   tudo × 12 meses (custo, valor cliente, líquido e resultado).
+ * Margem = resultado ÷ valor cliente, só das licenças (o suporte não entra).
  */
+
+/** O anual é sempre 12 meses. */
+export const LICENSE_CALC_MONTHS = 12;
 
 export interface LicenseReference {
   name: string;
+  /** Custo em dólar padrão (C), em centavos de dólar. */
+  usdCostCents: number;
+  /** Valor unitário em reais padrão (E). null = fórmula C × D. */
+  unitCostCents: number | null;
   /** Preço de referência fixo, sem margem — usado como valor unitário padrão. */
   zeroMarginCents: number;
   /** Preço de referência para licitação/edital — tabela de apoio à parte. */
   biddingCents: number;
 }
 
-/** Tabelas de apoio da aba "Mensal" (preço por licença, por mês). */
+/** Valor do dólar padrão (D) da planilha, em centavos. */
+export const DEFAULT_FX_RATE_CENTS = 5_00;
+
+/** Aba "Mensal" (valores padrão da planilha + tabelas de apoio, por licença/mês). */
 export const MONTHLY_LICENSE_REFERENCE: readonly LicenseReference[] = [
-  { name: "Claude Team Standard", zeroMarginCents: 171_00, biddingCents: 210_00 },
-  { name: "Claude Team Premium", zeroMarginCents: 849_00, biddingCents: 990_00 },
-  { name: "ChatGPT Business", zeroMarginCents: 168_00, biddingCents: 168_00 },
+  { name: "Claude Team Standard", usdCostCents: 25_00, unitCostCents: 138_00, zeroMarginCents: 171_00, biddingCents: 210_00 },
+  { name: "Claude Team Premium", usdCostCents: 125_00, unitCostCents: 688_00, zeroMarginCents: 849_00, biddingCents: 990_00 },
+  { name: "ChatGPT Business", usdCostCents: 20_00, unitCostCents: null, zeroMarginCents: 168_00, biddingCents: 168_00 },
 ];
 
-/** Tabelas de apoio da aba "Anual" (preço por licença, equivalente mensal). */
+/** Aba "Anual" (valores padrão da planilha + tabelas de apoio, equivalente mensal). */
 export const ANNUAL_LICENSE_REFERENCE: readonly LicenseReference[] = [
-  { name: "Claude Team Standard", zeroMarginCents: 136_00, biddingCents: 171_00 },
-  { name: "Claude Team Premium", zeroMarginCents: 689_00, biddingCents: 854_00 },
-  { name: "ChatGPT Business", zeroMarginCents: 168_00, biddingCents: 168_00 },
+  { name: "Claude Team Standard", usdCostCents: 25_00, unitCostCents: 110_00, zeroMarginCents: 136_00, biddingCents: 171_00 },
+  { name: "Claude Team Premium", usdCostCents: 125_00, unitCostCents: 550_00, zeroMarginCents: 689_00, biddingCents: 854_00 },
+  { name: "ChatGPT Business", usdCostCents: 20_00, unitCostCents: null, zeroMarginCents: 168_00, biddingCents: 168_00 },
 ];
 
 /**
  * Suporte mensal: taxa fixa pela quantidade TOTAL de licenças (todas as linhas),
- * não mais 30% do valor — faixas por volume.
+ * faixas por volume.
  */
 export const SUPPORT_FEE_TIERS: readonly { minQuantity: number; cents: number }[] = [
   { minQuantity: 51, cents: 4_500_00 },
@@ -255,135 +278,82 @@ export interface LicenseCalcRowInput {
   name: string;
   /** Custo em dólar (C), em centavos de dólar. */
   usdCostCents: number;
-  /** Câmbio (D), em centavos (ex.: 520 = R$ 5,20). */
+  /** Valor do dólar (D), em centavos (ex.: 520 = R$ 5,20; aceita fração). */
   fxRateCents: number;
-  /** Quantidade de licenças (H / I). */
-  quantity: number;
-  /** Valor unitário cobrado do cliente (J / L), em centavos. */
-  unitPriceCents: number;
-  /** Ajuste manual do custo da licença (G) — null/ausente usa a fórmula custo × câmbio + IOF. */
+  /** Valor unitário em reais (E) fixo/digitado — null/ausente usa C × D. */
+  unitCostOverrideCents?: number | null;
+  /** IOF (F) digitado — null/ausente usa E × 3,5%. */
+  iofOverrideCents?: number | null;
+  /** Custo da licença (G) digitado — null/ausente usa E + F. */
   licenseCostOverrideCents?: number | null;
-  /** Ajuste manual do total cobrado do cliente — null/ausente usa quantidade × valor unitário. */
-  clientTotalOverrideCents?: number | null;
+  /** Quantidade de licenças (H). */
+  quantity: number;
+  /** Valor unitário mensal cobrado do cliente (J), em centavos. */
+  unitPriceCents: number;
 }
 
-/** E — Valor unitário em reais = custo dólar × câmbio. */
-const unitCostOf = (row: LicenseCalcRowInput) => (row.usdCostCents * row.fxRateCents) / 100;
+/** E, F, G — custo da licença em reais, cada etapa com ajuste manual opcional. */
+export function licenseCostOf(row: LicenseCalcRowInput) {
+  const unitCostCents = row.unitCostOverrideCents ?? (row.usdCostCents * row.fxRateCents) / 100; // E
+  const iofCents = row.iofOverrideCents ?? unitCostCents * IOF_RATE; // F
+  const licenseCostCents = row.licenseCostOverrideCents ?? unitCostCents + iofCents; // G
+  return { unitCostCents, iofCents, licenseCostCents };
+}
 
-export type MonthlyLicenseCalcRow = LicenseCalcRowInput;
-
-/** Linha da aba "Mensal": custo → IOF → custo total → resultado/margem mensal e anual. */
-export function computeMonthlyLicenseRow(row: MonthlyLicenseCalcRow, months: number) {
-  const unitCostCents = unitCostOf(row); // E
-  const iofCents = unitCostCents * IOF_RATE; // F
-  const licenseCostCents = row.licenseCostOverrideCents ?? unitCostCents + iofCents; // G · ou ajuste manual
-  const totalCostCents = licenseCostCents * row.quantity; // I
-  const taxCents = row.unitPriceCents * NF_TAX_RATE; // K
-  const netUnitCents = row.unitPriceCents - taxCents; // L
-  const manualTotal = row.clientTotalOverrideCents != null;
-  const clientTotalCents = row.clientTotalOverrideCents ?? row.quantity * row.unitPriceCents; // M · ou ajuste manual
-  const netTotalCents = manualTotal ? clientTotalCents - clientTotalCents * NF_TAX_RATE : row.quantity * netUnitCents; // N
-  const zero = row.quantity === 0 && !manualTotal;
-  const resultCents = zero ? 0 : netTotalCents - totalCostCents; // O
-  const margin = zero || clientTotalCents === 0 ? null : resultCents / clientTotalCents; // P
-  const annualClientCents = zero ? 0 : clientTotalCents * months; // Q
-  const annualResultCents = resultCents * months; // R
+/**
+ * Uma linha da calculadora. `months` = 1 (aba Mensal) ou 12 (aba Anual):
+ * custo, valor cliente, líquido e resultado são multiplicados por `months`.
+ */
+export function computeLicenseRow(row: LicenseCalcRowInput, months: number) {
+  const { unitCostCents, iofCents, licenseCostCents } = licenseCostOf(row);
+  const q = row.quantity;
+  const totalCostCents = licenseCostCents * q * months; // I (mensal) · J (anual)
+  const taxUnitCents = row.unitPriceCents * NF_TAX_RATE; // K
+  const netUnitCents = row.unitPriceCents - taxUnitCents; // L
+  const clientTotalCents = q * row.unitPriceCents * months; // M (mensal) · N (anual)
+  const taxCents = clientTotalCents * NF_TAX_RATE; // imposto 12% sobre o total
+  const netTotalCents = clientTotalCents - taxCents; // N (mensal) · P (anual)
+  const resultCents = q === 0 ? 0 : netTotalCents - totalCostCents; // O (mensal) · Q (anual)
+  const margin = q === 0 || clientTotalCents === 0 ? null : resultCents / clientTotalCents; // P · R
   return {
     unitCostCents,
     iofCents,
     licenseCostCents,
     totalCostCents,
-    taxCents,
+    taxUnitCents,
     netUnitCents,
     clientTotalCents,
+    taxCents,
     netTotalCents,
     resultCents,
     margin,
-    annualClientCents,
-    annualResultCents,
   };
 }
 
-export type MonthlyLicenseCalcResult = ReturnType<typeof computeMonthlyLicenseRow>;
+export type LicenseCalcResult = ReturnType<typeof computeLicenseRow>;
 
-/** Linha de totais da aba "Mensal" (soma as linhas de licenças). */
-export function sumMonthlyLicenseRows(rows: ReadonlyArray<MonthlyLicenseCalcResult>) {
-  const sum = (k: keyof MonthlyLicenseCalcResult) => rows.reduce((s, r) => s + (r[k] as number), 0);
-  const totalCostCents = sum("totalCostCents");
+/** Linha de totais (soma as linhas; margem = resultado ÷ valor cliente, sem suporte). */
+export function sumLicenseRows(rows: ReadonlyArray<LicenseCalcResult>, quantities: ReadonlyArray<number>) {
+  const sum = (k: "totalCostCents" | "clientTotalCents" | "taxCents" | "netTotalCents" | "resultCents") =>
+    rows.reduce((s, r) => s + r[k], 0);
   const clientTotalCents = sum("clientTotalCents");
-  const netTotalCents = sum("netTotalCents");
   const resultCents = sum("resultCents");
-  const annualClientCents = sum("annualClientCents");
-  const annualResultCents = sum("annualResultCents");
   return {
-    totalCostCents,
+    quantity: quantities.reduce((s, n) => s + n, 0),
+    totalCostCents: sum("totalCostCents"),
     clientTotalCents,
-    netTotalCents,
+    taxCents: sum("taxCents"),
+    netTotalCents: sum("netTotalCents"),
     resultCents,
-    annualClientCents,
-    annualResultCents,
     margin: clientTotalCents === 0 ? null : resultCents / clientTotalCents,
   };
 }
 
-/** "Suporte": taxa fixa pela quantidade total de licenças, líquida do imposto — soma no resultado e no total cobrado. */
-export function monthlySupportAddon(totalQuantity: number) {
-  const supportCents = supportFeeFor(totalQuantity);
-  const netSupportCents = supportCents - supportCents * NF_TAX_RATE;
-  return { supportCents, netSupportCents };
-}
-
-export interface AnnualLicenseCalcRow extends LicenseCalcRowInput {
-  /** Meses de contrato desta licença (H). */
-  months: number;
-}
-
-/** Linha da aba "Anual": custo anualizado → preço anual do cliente → resultado/margem. */
-export function computeAnnualLicenseRow(row: AnnualLicenseCalcRow) {
-  const unitCostCents = unitCostOf(row); // E
-  const iofCents = unitCostCents * IOF_RATE; // F
-  const licenseCostCents = row.licenseCostOverrideCents ?? unitCostCents + iofCents; // G · ou ajuste manual
-  const totalCostCents = licenseCostCents * row.months * row.quantity; // J
-  const cardCostCents = row.quantity * unitCostCents * row.months; // K
-  const manualTotal = row.clientTotalOverrideCents != null;
-  const unitPriceAnnualCents = row.quantity === 0 ? 0 : row.unitPriceCents * row.months; // M
-  const clientAnnualCents = row.clientTotalOverrideCents ?? unitPriceAnnualCents * row.quantity; // N · ou ajuste manual
-  const taxCents = clientAnnualCents * NF_TAX_RATE; // O
-  const zero = row.quantity === 0 && !manualTotal;
-  const netCents = zero ? 0 : clientAnnualCents - taxCents; // P
-  const resultCents = zero ? 0 : netCents - totalCostCents; // Q
-  const margin = zero || clientAnnualCents === 0 ? null : resultCents / clientAnnualCents; // R
-  return {
-    unitCostCents,
-    iofCents,
-    licenseCostCents,
-    totalCostCents,
-    cardCostCents,
-    unitPriceAnnualCents,
-    clientAnnualCents,
-    taxCents,
-    netCents,
-    resultCents,
-    margin,
-  };
-}
-
-export type AnnualLicenseCalcResult = ReturnType<typeof computeAnnualLicenseRow>;
-
-/** Linha de totais da aba "Anual" (soma as linhas de licenças). */
-export function sumAnnualLicenseRows(rows: ReadonlyArray<AnnualLicenseCalcResult>) {
-  const sum = (k: keyof AnnualLicenseCalcResult) => rows.reduce((s, r) => s + (r[k] as number), 0);
-  const totalCostCents = sum("totalCostCents");
-  const cardCostCents = sum("cardCostCents");
-  const clientAnnualCents = sum("clientAnnualCents");
-  const netCents = sum("netCents");
-  const resultCents = sum("resultCents");
-  return {
-    totalCostCents,
-    cardCostCents,
-    clientAnnualCents,
-    netCents,
-    resultCents,
-    margin: clientAnnualCents === 0 ? null : resultCents / clientAnnualCents,
-  };
+/**
+ * Indicadores: valor total cliente, suporte (pela quantidade total de licenças)
+ * e a soma dos dois — no período (`months` = 1 mensal, 12 anual).
+ */
+export function licenseProposalSummary(clientTotalCents: number, totalQuantity: number, months: number) {
+  const supportCents = supportFeeFor(totalQuantity) * months;
+  return { clientTotalCents, supportCents, grandTotalCents: clientTotalCents + supportCents };
 }

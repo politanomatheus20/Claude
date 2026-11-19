@@ -92,7 +92,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
                     {data.ofMonth.map((c) => (
                       <tr key={c.id} className="group transition hover:bg-white/[0.02]">
                         <td className="max-w-64 px-5 py-3">
-                          <Link href={`/clientes/${c.clientId}`} className="flex items-center gap-1.5 font-medium hover:text-jelly-teal">
+                          <Link href={`/clientes/${c.clientId}`} prefetch={false} className="flex items-center gap-1.5 font-medium hover:text-jelly-teal">
                             <span className="truncate">{c.client.name}</span>
                             <ArrowUpRight className="size-3.5 shrink-0 opacity-0 transition group-hover:opacity-60" />
                           </Link>
@@ -145,7 +145,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
             <ul className="divide-y divide-white/[0.05] text-sm">
               {data.expiring.slice(0, 5).map((c) => (
                 <li key={`e-${c.id}`} className="flex items-center justify-between gap-3 px-5 py-2.5">
-                  <Link href={`/clientes/${c.clientId}`} className="min-w-0 truncate hover:text-jelly-teal">
+                  <Link href={`/clientes/${c.clientId}`} prefetch={false} className="min-w-0 truncate hover:text-jelly-teal">
                     {c.client.name}
                   </Link>
                   <Badge tone={termLabel[c.calc.termStatus].tone}>{c.calc.termStatus === "vencido" ? "Vencido" : `Vence em ${c.calc.daysToExpire}d`}</Badge>
@@ -153,7 +153,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
               ))}
               {data.pending.slice(0, 6).map((c) => (
                 <li key={`p-${c.id}`} className="flex items-center justify-between gap-3 px-5 py-2.5">
-                  <Link href={`/clientes/${c.clientId}`} className="min-w-0 truncate hover:text-jelly-teal">
+                  <Link href={`/clientes/${c.clientId}`} prefetch={false} className="min-w-0 truncate hover:text-jelly-teal">
                     {c.client.name}
                   </Link>
                   <span className="flex shrink-0 gap-1">
