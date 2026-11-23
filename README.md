@@ -137,11 +137,11 @@ npm run dev                    # http://localhost:3000
 1. Crie o banco no [Turso](https://turso.tech) e pegue URL + token.
 2. Importe o repositório na Vercel e crie um **Blob Store** no projeto.
 3. Variáveis de ambiente: `SESSION_SECRET`, `DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `BLOB_READ_WRITE_TOKEN`.
-4. Rode `npm run db:migrate` apontando para o Turso (com as variáveis acima no shell).
+4. Faça o deploy. **As tabelas do Turso são criadas/atualizadas automaticamente** a cada deploy (`scripts/migrate-on-deploy.mjs`, antes do `next build`) — não precisa rodar nada à mão.
 
 > Na Vercel o upload por request é limitado a ~4,5 MB pela plataforma.
 
-> ⚠️ **Sem `DATABASE_URL` na Vercel o site não funciona** (não existe banco local lá). O build passa mesmo sem as variáveis, mas as páginas mostram o erro "DATABASE_URL não configurada na Vercel" até elas serem cadastradas em *Settings → Environment Variables* (marque Production, Preview e Development) e um novo deploy ser feito. `SESSION_SECRET` também é obrigatório (mínimo 32 caracteres), senão o login falha.
+> ⚠️ **Sem `DATABASE_URL` na Vercel o site não funciona** (não existe banco local lá). O build passa mesmo sem as variáveis, mas o login mostra a mensagem "O sistema ainda não está configurado no servidor — falta cadastrar na Vercel: …" até elas serem cadastradas em *Settings → Environment Variables* (marque Production, Preview e Development) e um novo deploy ser feito. `SESSION_SECRET` também é obrigatório (mínimo 32 caracteres), senão o login falha.
 
 ## 🔐 Segurança
 
