@@ -141,6 +141,8 @@ npm run dev                    # http://localhost:3000
 
 > Na Vercel o upload por request é limitado a ~4,5 MB pela plataforma.
 
+> ⚠️ **Sem `DATABASE_URL` na Vercel o site não funciona** (não existe banco local lá). O build passa mesmo sem as variáveis, mas as páginas mostram o erro "DATABASE_URL não configurada na Vercel" até elas serem cadastradas em *Settings → Environment Variables* (marque Production, Preview e Development) e um novo deploy ser feito. `SESSION_SECRET` também é obrigatório (mínimo 32 caracteres), senão o login falha.
+
 ## 🔐 Segurança
 
 - Login sem senha nem confirmação por e-mail, **por decisão do negócio**: qualquer pessoa que digite um e-mail `@datagroup.global` válido entra. Se precisar endurecer, o próximo passo é enviar um link/código no primeiro acesso.

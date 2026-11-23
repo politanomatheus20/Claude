@@ -1,10 +1,11 @@
 /**
  * Roda uma vez quando o servidor sobe (Next.js "instrumentation hook").
- * Só serve para importar src/lib/db cedo e disparar o aquecimento da conexão
- * (ver comentário em src/lib/db/index.ts) antes da primeira requisição real.
+ * Aquece a conexão com o banco (ver warmUpDb em src/lib/db) antes da primeira
+ * requisição real. Não roda durante o build: o build não precisa de banco.
  */
 export async function register() {
-  if (process.env.NEXT_RUNTIME === "nodejs") {
-    await import("@/lib/db");
+  if (process.env.NEXT_RUNTIME === "nodejs" && process.env.NEXT_PHASE !== "phase-production-build") {
+    const { warmUpDb } = await import("@/lib/db");
+    warmUpDb();
   }
 }
