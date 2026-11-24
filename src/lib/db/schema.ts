@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { blob, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * Modelo espelhado na planilha "CLAUDE DATAGROUP 2026".
@@ -138,6 +138,17 @@ export const files = sqliteTable(
   },
   (t) => [index("files_client_idx").on(t.clientId)],
 );
+
+/**
+ * Conteúdo dos anexos (até 4 MB), guardado no próprio banco: funciona igual no
+ * computador e na Vercel, sem serviço extra, e o arquivo só sai pela rota
+ * autenticada /files/[id]. Tabela separada para listagens não carregarem os bytes.
+ */
+export const fileBlobs = sqliteTable("file_blobs", {
+  id: text("id").primaryKey(),
+  data: blob("data", { mode: "buffer" }).notNull(),
+  createdAt: createdAt(),
+});
 
 /** Histórico imutável: cada atualização de contrato guarda um snapshot (JSON) da versão. */
 export const contractVersions = sqliteTable(

@@ -12,6 +12,7 @@ import ExcelJS from "exceljs";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import * as schema from "../src/lib/db/schema";
+import { databaseTokenFromEnv, databaseUrlFromEnv } from "../src/lib/env";
 import { computeContract, type ContractValues } from "../src/lib/calc";
 import type { BillingStatus, LicenseStatus, NewContract, PaymentType, Sector } from "../src/lib/db/schema";
 
@@ -290,7 +291,7 @@ async function main() {
   }
 
   // ---------- Gravação ----------
-  const client = createClient({ url: process.env.DATABASE_URL ?? "file:./data/app.db", authToken: process.env.DATABASE_AUTH_TOKEN });
+  const client = createClient({ url: databaseUrlFromEnv() ?? "file:./data/app.db", authToken: databaseTokenFromEnv() });
   const db = drizzle(client, { schema });
 
   const existing = await db.select({ id: schema.clients.id }).from(schema.clients).limit(1);

@@ -132,16 +132,28 @@ npm run dev                    # http://localhost:3000
 | `npm run db:migrate` | aplica migrações |
 | `npm run db:studio` | navegador visual do banco |
 
-## ☁️ Deploy (Vercel + Turso + Blob)
+## ☁️ Deploy (Vercel + Turso)
 
-1. Crie o banco no [Turso](https://turso.tech) e pegue URL + token.
-2. Importe o repositório na Vercel e crie um **Blob Store** no projeto.
-3. Variáveis de ambiente: `SESSION_SECRET`, `DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `BLOB_READ_WRITE_TOKEN`.
-4. Faça o deploy. **As tabelas do Turso são criadas/atualizadas automaticamente** a cada deploy (`scripts/migrate-on-deploy.mjs`, antes do `next build`) — não precisa rodar nada à mão.
+O único serviço necessário é o **banco Turso**. Anexos ficam no próprio banco e a chave da sessão é derivada do token do banco — não há outras variáveis obrigatórias.
 
-> Na Vercel o upload por request é limitado a ~4,5 MB pela plataforma.
+1. Na Vercel, abra o projeto → **Storage** → **Create Database** → **Turso** → conecte ao projeto (marque Production, Preview e Development). A integração cria `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` sozinha.
+   - Também funciona pela linha de comando: `vercel integration add tursocloud/database`.
+   - Ou com um Turso próprio: cadastre `DATABASE_URL` e `DATABASE_AUTH_TOKEN` em *Settings → Environment Variables*.
+2. Faça um **novo deploy** (Deployments → ⋯ → Redeploy). **As tabelas são criadas automaticamente** antes do build (`scripts/migrate-on-deploy.mjs`).
+3. (Opcional) Carregar os clientes da planilha no banco de produção:
+   ```bash
+   vercel env pull .env.production.local --environment=production
+   npx tsx --env-file=.env.production.local scripts/import-planilha.ts "C:/caminho/CLAUDE DATAGROUP 2026.xlsx"
+   ```
 
-> ⚠️ **Sem `DATABASE_URL` na Vercel o site não funciona** (não existe banco local lá). O build passa mesmo sem as variáveis, mas o login mostra a mensagem "O sistema ainda não está configurado no servidor — falta cadastrar na Vercel: …" até elas serem cadastradas em *Settings → Environment Variables* (marque Production, Preview e Development) e um novo deploy ser feito. `SESSION_SECRET` também é obrigatório (mínimo 32 caracteres), senão o login falha.
+| Variável | Obrigatória? | Observação |
+|---|---|---|
+| `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` (ou `DATABASE_URL` + `DATABASE_AUTH_TOKEN`) | **Sim** | Criadas pela integração Turso da Vercel |
+| `SESSION_SECRET` | Não | Se ausente, a chave da sessão é derivada do token do banco (HKDF-SHA256) |
+| `BLOB_READ_WRITE_TOKEN` | Não | Só para ler anexos antigos gravados no Vercel Blob |
+
+> Sem o banco conectado, o build passa, mas o login mostra: "O sistema ainda não está configurado no servidor — falta conectar o banco de dados Turso…".
+> Na Vercel o upload por requisição é limitado a ~4,5 MB pela plataforma (anexos até 4 MB).
 
 ## 🔐 Segurança
 
@@ -185,3 +197,4 @@ npm run dev                    # http://localhost:3000
 | 2026-11-18 | Layout responsivo revisado em Calculadora, Planilha e Clientes: nada cortado (texto longo quebra linha), nada sobreposto, tela inteira em qualquer tamanho. Auditoria automática em 15 tamanhos de tela (360px a 4K) × 5 telas: 0 problemas. |
 | 2026-11-18 | Revisão de bugs e desempenho: S (consultoria) editado na Planilha fica exato (ajuste manual, sem perder centavos); parcelas = 0 recusado; edições rápidas na mesma linha não falham mais; desfazer só a edição que falhou; datas no horário de Brasília; mês inválido na URL não derruba o painel; leitura de números aceita "1,234.56"/"5.4321"; câmbio com 4 casas na Calculadora; recebimentos simultâneos seguros; anexos até 4 MB, caminho validado e apagados junto com o cliente; diálogos reabrem limpos; erro de formulário leva ao campo (sem aviso cobrindo o botão); Planilha mais leve (salvar 171→69 ms, seta 10→3 ms). |
 | 2026-11-23 | Sincronizado com a v0.5 do outro computador e verificado (72 testes, 33 fluxos no navegador, layout em 15 telas, PDF da proposta). Navegação mais rápida: a tela de carregamento de página inteira (que o React mantém por no mínimo ~300 ms) foi trocada por um indicador instantâneo no item do menu — Planilha 365 → ~90 ms, Calculadora/Metas ~850 → ~40 ms na 1ª visita. |
+| 2026-11-23 | Deploy na Vercel simplificado: basta conectar o Turso (aceita `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN` da integração); `SESSION_SECRET` opcional (chave derivada do token do banco); anexos guardados no próprio banco (tabela `file_blobs`), sem Vercel Blob e sem endereço público. Testado simulando a Vercel. |

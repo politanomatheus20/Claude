@@ -13,19 +13,22 @@ import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
 
-const url = process.env.DATABASE_URL?.trim();
+// Mesmos nomes aceitos por src/lib/env.ts (integração Turso da Vercel ou cadastro manual).
+const pick = (...names) => names.map((n) => process.env[n]?.trim()).find(Boolean);
+const url = pick("DATABASE_URL", "TURSO_DATABASE_URL", "LIBSQL_URL", "TURSO_URL");
+const authToken = pick("DATABASE_AUTH_TOKEN", "TURSO_AUTH_TOKEN", "LIBSQL_AUTH_TOKEN");
 if (!url) {
   console.log("[migrate] DATABASE_URL não definida — pulando (banco local usa `npm run setup`).");
   process.exit(0);
 }
 
-const client = createClient({ url, authToken: process.env.DATABASE_AUTH_TOKEN?.trim() || undefined });
+const client = createClient({ url, authToken });
 try {
   await migrate(drizzle(client), { migrationsFolder: "./drizzle" });
   console.log("[migrate] Banco de dados com as tabelas em dia.");
 } catch (err) {
   console.error("[migrate] FALHOU ao preparar o banco de dados:", err instanceof Error ? err.message : err);
-  console.error("[migrate] Confira DATABASE_URL e DATABASE_AUTH_TOKEN em Settings → Environment Variables na Vercel.");
+  console.error("[migrate] Confira a conexão do Turso com o projeto na Vercel (Storage) ou DATABASE_URL/DATABASE_AUTH_TOKEN.");
   process.exitCode = 1;
 } finally {
   client.close();

@@ -1,12 +1,15 @@
 import "server-only";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
-import { del, put } from "@vercel/blob";
+import { del } from "@vercel/blob";
+import { eq } from "drizzle-orm";
+import { db } from "./db";
+import { fileBlobs } from "./db/schema";
 
 /**
- * Armazenamento de anexos.
- * - Com BLOB_READ_WRITE_TOKEN (produção/Vercel): Vercel Blob (acesso privado via rota autenticada).
- * - Sem token (local): pasta ./data/uploads.
+ * Armazenamento de anexos: no próprio banco (tabela file_blobs), chave "db:<id>".
+ * Funciona igual no computador e na Vercel, sem configurar nada além do banco.
+ * Leitura/remoção continuam aceitando anexos antigos (pasta ./data/uploads ou URL do Vercel Blob).
  */
 
 const LOCAL_DIR = path.join(process.cwd(), "data", "uploads");
@@ -25,29 +28,22 @@ export const ALLOWED_MIME = new Set([
   "application/vnd.ms-excel",
 ]);
 
-const blobEnabled = () => Boolean(process.env.BLOB_READ_WRITE_TOKEN);
-
-function safeName(name: string) {
-  return name.normalize("NFKD").replace(/[^\w.-]+/g, "_").slice(-120);
-}
-
 const SAFE_FOLDER = /^[0-9a-f-]{36}\/(proposta|invoice)$/;
 
 export async function saveFile(file: File, folder: string): Promise<string> {
-  // A pasta vem de IDs; impede "../" e afins de escapar de data/uploads.
+  // A pasta vem de IDs; recusa qualquer coisa fora do formato esperado.
   if (!SAFE_FOLDER.test(folder)) throw new Error("Pasta de anexo inválida.");
-  const key = `${folder}/${crypto.randomUUID()}-${safeName(file.name)}`;
-  if (blobEnabled()) {
-    const blob = await put(key, file, { access: "public", addRandomSuffix: false, contentType: file.type });
-    return blob.url;
-  }
-  const target = path.join(LOCAL_DIR, key);
-  await mkdir(path.dirname(target), { recursive: true });
-  await writeFile(target, Buffer.from(await file.arrayBuffer()));
-  return key;
+  const id = crypto.randomUUID();
+  await db.insert(fileBlobs).values({ id, data: Buffer.from(await file.arrayBuffer()) });
+  return `db:${id}`;
 }
 
 export async function readStoredFile(storageKey: string): Promise<Buffer | Response> {
+  if (storageKey.startsWith("db:")) {
+    const row = await db.query.fileBlobs.findFirst({ where: eq(fileBlobs.id, storageKey.slice(3)) });
+    if (!row) throw new Error("Arquivo não encontrado.");
+    return Buffer.from(row.data);
+  }
   if (/^https?:\/\//.test(storageKey)) {
     return fetch(storageKey);
   }
@@ -56,8 +52,12 @@ export async function readStoredFile(storageKey: string): Promise<Buffer | Respo
   return readFile(target);
 }
 
-/** Remove o arquivo do armazenamento (local ou Vercel Blob). Silencioso se já não existir. */
+/** Remove o arquivo do armazenamento (banco, pasta local ou Vercel Blob). Silencioso se já não existir. */
 export async function deleteStoredFile(storageKey: string) {
+  if (storageKey.startsWith("db:")) {
+    await db.delete(fileBlobs).where(eq(fileBlobs.id, storageKey.slice(3)));
+    return;
+  }
   if (/^https?:\/\//.test(storageKey)) {
     await del(storageKey);
     return;

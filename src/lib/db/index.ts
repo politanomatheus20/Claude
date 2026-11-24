@@ -2,6 +2,7 @@ import "server-only";
 import { createClient, type Client as LibsqlClient } from "@libsql/client";
 import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import * as schema from "./schema";
+import { databaseTokenFromEnv, databaseUrlFromEnv } from "../env";
 
 /**
  * Local: arquivo SQLite (file:./data/app.db) — nada para instalar.
@@ -16,12 +17,12 @@ type Database = LibSQLDatabase<typeof schema> & { $client: LibsqlClient };
 const globalForDb = globalThis as unknown as { libsql?: LibsqlClient };
 
 function databaseUrl() {
-  const url = process.env.DATABASE_URL?.trim();
+  const url = databaseUrlFromEnv();
   if (url) return url;
   // Na Vercel não existe disco persistente: o arquivo local nunca funcionaria.
   if (process.env.VERCEL) {
     throw new Error(
-      "DATABASE_URL não configurada na Vercel. Cadastre DATABASE_URL (libsql://...turso.io) e DATABASE_AUTH_TOKEN em Settings → Environment Variables e faça um novo deploy.",
+      "DATABASE_URL não configurada na Vercel: conecte o banco Turso ao projeto (Storage → Turso) e faça um novo deploy.",
     );
   }
   return "file:./data/app.db";
@@ -29,7 +30,7 @@ function databaseUrl() {
 
 function getClient() {
   if (!globalForDb.libsql) {
-    globalForDb.libsql = createClient({ url: databaseUrl(), authToken: process.env.DATABASE_AUTH_TOKEN?.trim() || undefined });
+    globalForDb.libsql = createClient({ url: databaseUrl(), authToken: databaseTokenFromEnv() });
   }
   return globalForDb.libsql;
 }
