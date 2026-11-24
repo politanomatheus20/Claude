@@ -938,7 +938,7 @@ function Training({ d }: { d: ProposalData }) {
           { label: "Valor", width: "30%", align: "center", bold: true },
         ]}
         rows={[
-          ["Treinamento para Liderança (opcional)", brl(d.trainingCents)],
+          ["Treinamento para Liderança (opcional)", d.trainingIncluded ? brl(d.trainingCents) : "Sob consulta"],
           ["Material de apoio e templates", "Incluído"],
         ]}
       />
@@ -1161,7 +1161,7 @@ function Omnis() {
   );
 }
 
-function ScheduleAndLgpd() {
+function ScheduleAndLgpd({ d }: { d: ProposalData }) {
   return (
     <ContentPage>
       <H1 n="VIII">Cronograma Estimado</H1>
@@ -1178,18 +1178,19 @@ function ScheduleAndLgpd() {
           { label: "Prazo", width: "45%", bold: true },
         ]}
         rows={[
-          [
-            "Implantação do sistema – opcional (com consultoria de governança e adoção)",
-            "16 dias úteis, contados a partir do kick-off do projeto",
-          ],
+          ...(d.implantationIncluded
+            ? [
+                [
+                  "Implantação do sistema – opcional (com consultoria de governança e adoção)",
+                  "16 dias úteis, contados a partir do kick-off do projeto",
+                ],
+              ]
+            : []),
           [
             "Licenciamento Claude (ativação e saldo de tokens)",
             "5 dias úteis, após confirmação do pedido e recebimento dos dados do cliente",
           ],
-          [
-            "Treinamento para Liderança – opcional",
-            "A combinar entre as partes",
-          ],
+          ...(d.trainingIncluded ? [["Treinamento para Liderança – opcional", "A combinar entre as partes"]] : []),
           [
             "Data Omnis (cortesia)",
             "A combinar entre as partes, em paralelo à implantação",
@@ -1270,14 +1271,21 @@ function CommercialTerms({ d }: { d: ProposalData }) {
               {d.billing === "anual" ? "parcela única" : "parcela mensal"}, com
               vencimento em 10 dias a partir da emissão da nota fiscal;
             </>,
-            <>
-              <B>
-                Serviços opcionais (Implantação e Treinamento para Liderança),
-                quando contratados:
-              </B>{" "}
-              parcela única, com vencimento em 30 dias a partir da emissão da
-              nota fiscal;
-            </>,
+            ...(d.implantationIncluded || d.trainingIncluded
+              ? [
+                  <>
+                    <B>
+                      Serviços opcionais (
+                      {[d.implantationIncluded ? "Implantação" : null, d.trainingIncluded ? "Treinamento para Liderança" : null]
+                        .filter(Boolean)
+                        .join(" e ")}
+                      ):
+                    </B>{" "}
+                    parcela única, com vencimento em 30 dias a partir da emissão da
+                    nota fiscal;
+                  </>,
+                ]
+              : []),
             <>
               <B>Saldo de tokens:</B> modelo pós-pago – o Data Group adiciona o
               saldo no ambiente conforme o consumo e fatura mensalmente, com
@@ -1663,7 +1671,7 @@ export function ProposalDocument({ d }: { d: ProposalData }) {
       <Support />
       <Investment d={d} />
       <Omnis />
-      <ScheduleAndLgpd />
+      <ScheduleAndLgpd d={d} />
       <CommercialTerms d={d} />
       <ContractParameters />
       <Conclusion d={d} />

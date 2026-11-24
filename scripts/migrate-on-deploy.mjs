@@ -17,6 +17,13 @@ import { migrate } from "drizzle-orm/libsql/migrator";
 const pick = (...names) => names.map((n) => process.env[n]?.trim()).find(Boolean);
 const url = pick("DATABASE_URL", "TURSO_DATABASE_URL", "LIBSQL_URL", "TURSO_URL");
 const authToken = pick("DATABASE_AUTH_TOKEN", "TURSO_AUTH_TOKEN", "LIBSQL_AUTH_TOKEN");
+// Deploys de teste (Preview) usam o mesmo banco da produção: não podem alterar a
+// estrutura dele (uma migração de outro branch poderia ser aplicada fora de ordem).
+if (process.env.VERCEL && process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
+  console.log(`[migrate] Deploy de ${process.env.VERCEL_ENV} — migrações só rodam em produção. Pulando.`);
+  process.exit(0);
+}
+
 if (!url) {
   console.log("[migrate] DATABASE_URL não definida — pulando (banco local usa `npm run setup`).");
   process.exit(0);

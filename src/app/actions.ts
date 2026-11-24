@@ -41,11 +41,17 @@ async function storeUpload(
   const file = fd.get(field);
   if (!(file instanceof File) || file.size === 0) return null;
   const storageKey = await saveFile(file, `${clientId}/${kind}`);
-  const [row] = await db
-    .insert(files)
-    .values({ clientId, contractId: contractId ?? null, kind, name: file.name, mimeType: file.type, size: file.size, storageKey, uploadedBy: userId })
-    .returning();
-  return row;
+  try {
+    const [row] = await db
+      .insert(files)
+      .values({ clientId, contractId: contractId ?? null, kind, name: file.name, mimeType: file.type, size: file.size, storageKey, uploadedBy: userId })
+      .returning();
+    return row;
+  } catch (err) {
+    // Não deixa o conteúdo do arquivo órfão no banco se o registro do anexo falhar.
+    await deleteStoredFile(storageKey).catch(() => {});
+    throw err;
+  }
 }
 
 /**

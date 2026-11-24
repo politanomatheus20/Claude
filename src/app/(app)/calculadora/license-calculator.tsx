@@ -57,14 +57,27 @@ const defaultRow = (ref: LicenseReference): RowInputs => ({
   unitPrice: centsToInput(ref.zeroMarginCents),
 });
 
-const toCents = (v: string) => parseMoneyToCents(v) ?? 0;
-/** Valor do dólar aceita até 4 casas (ex.: 5,4321) — sem arredondar para centavos. */
-const toFxCents = (v: string) => (parseDecimal(v) ?? 0) * 100;
+/** Valores em reais: nunca negativos (um "-" digitado por engano vira 0). */
+const toCents = (v: string) => Math.max(0, parseMoneyToCents(v) ?? 0);
+/**
+ * Valor do dólar: até 4 casas (ex.: 5,4321 ou 5.4321), sem arredondar para centavos.
+ * Aqui o ponto é SEMPRE decimal — câmbio nunca tem milhar ("5.432" = 5,432, não 5 mil).
+ */
+const toFxCents = (v: string) => {
+  const t = v.trim();
+  const n = /^\d+\.\d+$/.test(t) ? Number(t) : parseDecimal(t);
+  return Math.max(0, n ?? 0) * 100;
+};
 /** Campo fórmula/valor: null ou vazio = fórmula. */
-const toOverrideCents = (v: string | null) => (v === null || v.trim() === "" ? null : parseMoneyToCents(v));
+const toOverrideCents = (v: string | null) => {
+  if (v === null || v.trim() === "") return null;
+  const c = parseMoneyToCents(v);
+  return c === null ? null : Math.max(0, c);
+};
+/** Quantidade de licenças: só inteiro ("1,5" ou "2.5" não viram 15/25 — arredonda para baixo). */
 const toInt = (v: string) => {
-  const n = parseInt(v.replace(/[^\d]/g, ""), 10);
-  return Number.isFinite(n) ? n : 0;
+  const n = parseDecimal(v);
+  return n === null || n < 0 ? 0 : Math.floor(n);
 };
 
 const MODES = {
@@ -169,7 +182,7 @@ export function LicenseCalculator() {
           <Legend />
           <Button type="button" size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" onClick={resetDefaults}>
             <RotateCcw className="size-3.5" aria-hidden />
-            Restaurar padrões
+            Restaurar padrões desta aba
           </Button>
         </div>
 

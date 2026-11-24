@@ -40,7 +40,8 @@ async function deriveKey(material: string) {
 export function sessionKeySource(): "secret" | "database" | "dev" | null {
   if ((process.env.SESSION_SECRET?.length ?? 0) >= 32) return "secret";
   if (databaseTokenFromEnv()) return "database";
-  if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) return "dev";
+  // Chave fixa de desenvolvimento só fora de produção — em produção (Vercel ou não) é preciso segredo de verdade.
+  if (process.env.NODE_ENV !== "production") return "dev";
   return null;
 }
 
@@ -52,6 +53,10 @@ function secret(): Promise<Uint8Array> {
     else if (source === "dev" && process.env.SESSION_SECRET) keyPromise = Promise.resolve(new TextEncoder().encode(process.env.SESSION_SECRET));
     else if (source === "dev") keyPromise = Promise.resolve(new TextEncoder().encode("dev-only-secret-change-me-dev-only-secret"));
     else return Promise.reject(new Error("SESSION_SECRET ausente e banco Turso não conectado."));
+    // Se a derivação falhar, não guarda o erro para sempre: tenta de novo na próxima chamada.
+    keyPromise.catch(() => {
+      keyPromise = null;
+    });
   }
   return keyPromise;
 }

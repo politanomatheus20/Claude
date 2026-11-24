@@ -10,8 +10,14 @@ export async function GET(request: Request, ctx: RouteContext<"/files/[id]">) {
   const file = await getFile(id);
   if (!file) return new Response("Arquivo não encontrado", { status: 404 });
 
-  const content = await readStoredFile(file.storageKey);
-  const body = content instanceof Response ? content.body : new Uint8Array(content);
+  let body: BodyInit | null;
+  try {
+    const content = await readStoredFile(file.storageKey);
+    if (content instanceof Response && !content.ok) throw new Error(`HTTP ${content.status}`);
+    body = content instanceof Response ? content.body : new Uint8Array(content);
+  } catch {
+    return new Response("Arquivo não encontrado", { status: 404 });
+  }
   const download = new URL(request.url).searchParams.has("download");
 
   return new Response(body, {

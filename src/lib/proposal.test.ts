@@ -111,3 +111,30 @@ describe("proposta — validação", () => {
   });
   it("moeda sem espaço especial (fonte do PDF)", () => assert.equal(brl(1_234_56), "R$ 1.234,56"));
 });
+
+describe("proposta — correções da revisão", () => {
+  it("letras especiais entram no nº da proposta", () => {
+    assert.equal(clientSlug("Ølsen & Søn"), "OLSENSON");
+    assert.equal(clientSlug("Straße"), "STRASSE");
+  });
+
+  it("nº automático usa a data de emissão", () => {
+    assert.equal(defaultProposalNumber("ETPS", "2026-11-30"), "ETPS20261130");
+  });
+
+  it("nome do arquivo fica curto mesmo com cliente enorme", () => {
+    const nome = "CONSELHO NACIONAL ".repeat(12);
+    const f = proposalFileName({ number: defaultProposalNumber(nome, "2026-11-23"), revision: "Rev1.0", clientName: nome });
+    assert.ok(f.length < 140, `${f.length} caracteres`);
+    assert.ok(f.endsWith(".pdf"));
+  });
+
+  it("valida opcional incluído sem valor e licença sem preço", () => {
+    assert.ok(proposalProblems({ ...base, implantation: { included: true, cents: 0 } }).some((p) => p.includes("implantação")));
+    assert.ok(proposalProblems({ ...base, training: { included: true, cents: 0 } }).some((p) => p.includes("treinamento")));
+    assert.ok(proposalProblems({ ...base, training: { included: false, cents: 0 } }).every((p) => !p.includes("treinamento")));
+    const semPreco = { ...base, licenses: [{ name: "Claude Team Standard", quantity: 5, unitPriceCents: 0 }] };
+    assert.ok(proposalProblems(semPreco).some((p) => p.includes("valor unitário")));
+    assert.deepEqual(proposalProblems(base), []);
+  });
+});

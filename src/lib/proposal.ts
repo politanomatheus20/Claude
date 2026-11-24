@@ -73,8 +73,12 @@ export interface InvestmentRow {
 }
 
 /** "Hipercon Ltda." → "HIPERCONLTDA" (sem acentos, espaços ou símbolos). */
+/** Letras que não se decompõem em letra + acento (Ø, Æ, ß, Ł…). */
+const SPECIAL_LETTERS: Record<string, string> = { Ø: "O", ø: "o", Æ: "AE", æ: "ae", Œ: "OE", œ: "oe", ß: "SS", Ł: "L", ł: "l", Đ: "D", đ: "d", Þ: "TH", þ: "th" };
+
 export function clientSlug(name: string) {
   return name
+    .replace(/[ØøÆæŒœßŁłĐđÞþ]/g, (ch) => SPECIAL_LETTERS[ch] ?? ch)
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toUpperCase()
@@ -190,8 +194,12 @@ export type ProposalData = ReturnType<typeof buildProposal>;
 
 /** Nome do arquivo no padrão usado hoje: "Proposta Comercial - Nº - Rev - Cliente.pdf". */
 export function proposalFileName(p: Pick<ProposalData, "number" | "revision" | "clientName">) {
-  const safe = (s: string) => s.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
-  return `${["Proposta Comercial", safe(p.number), safe(p.revision), safe(p.clientName)].filter(Boolean).join(" - ")}.pdf`;
+  const safe = (s: string, max: number) => {
+    const t = s.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
+    return t.length > max ? `${t.slice(0, max).trimEnd()}…` : t;
+  };
+  // Limita o tamanho: nomes enormes estouram o limite de caminho do Windows (260 caracteres).
+  return `${["Proposta Comercial", safe(p.number, 40), safe(p.revision, 12), safe(p.clientName, 60)].filter(Boolean).join(" - ")}.pdf`;
 }
 
 /** O que falta para gerar a proposta (vazio = pronto). */
@@ -201,5 +209,10 @@ export function proposalProblems(input: ProposalInput) {
   if (!isValidIsoDate(input.issuedAt)) problems.push("Informe a data de emissão.");
   if (!input.licenses.some((l) => l.quantity > 0)) problems.push("Informe a quantidade de licenças na calculadora.");
   if (input.signers.length === 0) problems.push("Escolha pelo menos um contato para assinar.");
+  if (input.licenses.some((l) => l.quantity > 0 && l.unitPriceCents <= 0)) {
+    problems.push("Informe o valor unitário ao cliente das licenças com quantidade.");
+  }
+  if (input.implantation.included && input.implantation.cents <= 0) problems.push("Informe o valor da implantação (ou desmarque).");
+  if (input.training.included && input.training.cents <= 0) problems.push("Informe o valor do treinamento (ou desmarque).");
   return problems;
 }

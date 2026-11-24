@@ -14,6 +14,7 @@ import {
   DEFAULT_SIGNER_IDS,
   DEFAULT_TRAINING_CENTS,
   defaultProposalNumber,
+  isValidIsoDate,
   PROPOSAL_SIGNERS,
   proposalFileName,
   proposalProblems,
@@ -54,10 +55,14 @@ export function ProposalBuilder({
   const [signerIds, setSignerIds] = useState<string[]>([...DEFAULT_SIGNER_IDS]);
   const [busy, setBusy] = useState<"download" | "preview" | null>(null);
 
+  /** Nº automático: NOME DO CLIENTE em maiúsculas + data de emissão (AAAAMMDD). */
+  const autoNumber = clientName.trim() && isValidIsoDate(issuedAt) ? defaultProposalNumber(clientName, issuedAt) : "";
+  const effectiveNumber = numberEdited ? number : autoNumber;
+
   const input: ProposalInput = {
     clientName,
     contactName,
-    number,
+    number: effectiveNumber,
     revision,
     issuedAt,
     billing,
@@ -69,12 +74,8 @@ export function ProposalBuilder({
   };
   const problems = proposalProblems(input);
   const investment = buildInvestment(input);
-  /** Nº automático: NOME DO CLIENTE em maiúsculas + data de hoje (AAAAMMDD). */
-  const autoNumberFor = (name: string) => (name.trim() ? defaultProposalNumber(name, today()) : "");
-
   function changeClient(name: string) {
     setClientName(name);
-    if (!numberEdited) setNumber(autoNumberFor(name));
   }
 
   function changeNumber(value: string) {
@@ -83,7 +84,7 @@ export function ProposalBuilder({
   }
 
   function resetAutoNumber() {
-    setNumber(autoNumberFor(clientName));
+    setNumber("");
     setNumberEdited(false);
   }
 
@@ -146,7 +147,7 @@ export function ProposalBuilder({
             </label>
             <Input
               id="pp-number"
-              value={number}
+              value={effectiveNumber}
               onChange={(e) => changeNumber(e.target.value)}
               onBlur={() => {
                 if (!number.trim()) resetAutoNumber();
@@ -157,10 +158,10 @@ export function ProposalBuilder({
             />
             {numberEdited ? (
               <button type="button" onClick={resetAutoNumber} className="w-fit text-left text-xs text-jelly-teal hover:underline">
-                ↺ usar automático ({autoNumberFor(clientName) || "CLIENTE + data de hoje"})
+                ↺ usar automático ({autoNumber || "CLIENTE + data de emissão"})
               </button>
             ) : (
-              <p className="text-xs text-mist/40">Automático: cliente + data de hoje (ano-mês-dia)</p>
+              <p className="text-xs text-mist/40">Automático: cliente + data de emissão (ano-mês-dia)</p>
             )}
           </div>
           <Field label="Revisão" htmlFor="pp-rev">
