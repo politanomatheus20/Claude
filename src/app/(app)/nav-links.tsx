@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Calculator, Gauge, Sheet, Target, Users } from "lucide-react";
+import { Calculator, Gauge, Loader2, Sheet, Target, Users } from "lucide-react";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 
@@ -50,9 +50,25 @@ export function NavLinks() {
             ) : null}
             <Icon className={cn("size-4", active ? "text-jelly-teal" : "")} />
             {label}
+            <Pending />
           </Link>
         );
       })}
     </nav>
+  );
+}
+
+/**
+ * Sinal imediato no item clicado enquanto a próxima tela chega do servidor.
+ * (Substitui a tela de carregamento de página inteira, que o React segura por
+ * no mínimo ~300 ms e deixava a navegação mais lenta quando o servidor é rápido.)
+ */
+function Pending() {
+  const { pending } = useLinkStatus();
+  return (
+    <Loader2
+      aria-hidden="true"
+      className={cn("ml-auto size-3.5 animate-spin text-jelly-teal transition-opacity delay-100", pending ? "opacity-100" : "opacity-0")}
+    />
   );
 }
