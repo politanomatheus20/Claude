@@ -152,6 +152,8 @@ O único serviço necessário é o **banco Turso**. Anexos ficam no próprio ban
 | `SESSION_SECRET` | Não | Se ausente, a chave da sessão é derivada do token do banco (HKDF-SHA256) |
 | `BLOB_READ_WRITE_TOKEN` | Não | Só para ler anexos antigos gravados no Vercel Blob |
 
+> **Acesso público:** a *Deployment Protection* (Vercel Authentication) está **desligada** no projeto (`vercel project protection disable claude --sso`), para que qualquer pessoa com o link — principal ou de um deploy específico — chegue à tela de login. Quem entra continua restrito a e-mails `@datagroup.global` pelo login do próprio sistema.
+
 > Sem o banco conectado, o build passa, mas o login mostra: "O sistema ainda não está configurado no servidor — falta conectar o banco de dados Turso…".
 > Na Vercel o upload por requisição é limitado a ~4,5 MB pela plataforma (anexos até 4 MB).
 
@@ -198,3 +200,4 @@ O único serviço necessário é o **banco Turso**. Anexos ficam no próprio ban
 | 2026-11-18 | Revisão de bugs e desempenho: S (consultoria) editado na Planilha fica exato (ajuste manual, sem perder centavos); parcelas = 0 recusado; edições rápidas na mesma linha não falham mais; desfazer só a edição que falhou; datas no horário de Brasília; mês inválido na URL não derruba o painel; leitura de números aceita "1,234.56"/"5.4321"; câmbio com 4 casas na Calculadora; recebimentos simultâneos seguros; anexos até 4 MB, caminho validado e apagados junto com o cliente; diálogos reabrem limpos; erro de formulário leva ao campo (sem aviso cobrindo o botão); Planilha mais leve (salvar 171→69 ms, seta 10→3 ms). |
 | 2026-11-23 | Sincronizado com a v0.5 do outro computador e verificado (72 testes, 33 fluxos no navegador, layout em 15 telas, PDF da proposta). Navegação mais rápida: a tela de carregamento de página inteira (que o React mantém por no mínimo ~300 ms) foi trocada por um indicador instantâneo no item do menu — Planilha 365 → ~90 ms, Calculadora/Metas ~850 → ~40 ms na 1ª visita. |
 | 2026-11-23 | Deploy na Vercel simplificado: basta conectar o Turso (aceita `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN` da integração); `SESSION_SECRET` opcional (chave derivada do token do banco); anexos guardados no próprio banco (tabela `file_blobs`), sem Vercel Blob e sem endereço público. Testado simulando a Vercel. |
+| 2026-11-23 | Produção funcionando para qualquer pessoa com o link: Turso conectado, proteção de deploy da Vercel desligada (links de deploy pediam login na Vercel). Testado como visitante anônimo no link principal e num link de deploy: login, Clientes, Planilha, Metas e Calculadora OK. |
