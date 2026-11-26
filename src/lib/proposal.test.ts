@@ -4,6 +4,7 @@ import {
   brl,
   buildInvestment,
   buildProposal,
+  DATA_OMNIS_QUANTITY,
   clientSlug,
   defaultProposalNumber,
   longDate,
@@ -63,7 +64,7 @@ describe("proposta — investimento consolidado (mensal)", () => {
         [1, "Licenciamento Claude Team Standard", "9", "Licença", 171_00, 1_539_00],
         [2, "Licenciamento Claude Team Premium", "1", "Licença", 849_00, 849_00],
         [3, "Suporte Contínuo Consultivo 24/7", "1", "Mensal", 990_00, 990_00],
-        [4, "Governança de IA – Data Omnis", "10", "Licença", null, null],
+        [4, "Governança de IA – Data Omnis", "X", "Licença", null, null],
         [5, "Implantação do Sistema Claude (Kickoff)", "1", "Serviço", null, null],
       ],
     );
@@ -100,6 +101,47 @@ describe("proposta — investimento consolidado (anual)", () => {
     assert.deepEqual([sup.quantity, sup.unit, sup.unitCents, sup.totalCents], ["12", "Mensalidade", 990_00, 11_880_00]);
     assert.equal(inv.recurringTotalCents, 32_640_00 + 11_880_00);
     assert.equal(inv.recurringTotalLabel, "Total estimado (12 meses):");
+  });
+});
+
+describe("proposta — Data Omnis sempre com qtd. X", () => {
+  const omnis = (inv: ReturnType<typeof buildInvestment>) => inv.recurring.find((r) => r.object === "Governança de IA – Data Omnis")!;
+  const lic = (quantity: number) => [{ name: "Claude Team Standard", quantity, unitPriceCents: 171_00 }];
+
+  for (const q of [1, 4, 5, 10, 20, 51, 150]) {
+    for (const billing of ["mensal", "anual"] as const) {
+      it(`${q} licença(s), ${billing}: qtd. "X", cortesia e fora do total`, () => {
+        const withOmnis = buildInvestment({ ...base, billing, licenses: lic(q) });
+        const r = omnis(withOmnis);
+        assert.equal(DATA_OMNIS_QUANTITY, "X");
+        assert.equal(r.quantity, "X");
+        assert.equal(r.unit, "Licença");
+        assert.equal(r.unitCents, null);
+        assert.equal(r.totalCents, null);
+        // O total não muda por causa do Omnis (é cortesia).
+        const months = billing === "anual" ? 12 : 1;
+        assert.equal(withOmnis.recurringTotalCents, 171_00 * months * q + base.supportMonthlyCents * months);
+      });
+    }
+  }
+
+  it("várias licenças diferentes: continua X (não soma as quantidades)", () => {
+    assert.equal(omnis(buildInvestment(base)).quantity, "X");
+  });
+
+  it("numeração dos itens continua em sequência (com e sem suporte)", () => {
+    const comSuporte = buildInvestment(base).recurring.map((r) => [r.item, r.quantity]);
+    assert.deepEqual(comSuporte, [[1, "9"], [2, "1"], [3, "1"], [4, "X"], [5, "1"]]);
+    const semSuporte = buildInvestment({ ...base, supportMonthlyCents: 0 }).recurring.map((r) => [r.item, r.quantity]);
+    assert.deepEqual(semSuporte, [[1, "9"], [2, "1"], [3, "X"], [4, "1"]]);
+  });
+
+  it("totalQuantity (usado no texto do suporte) continua sendo o nº real de licenças", () => {
+    assert.equal(buildInvestment(base).totalQuantity, 10);
+  });
+
+  it("dados do PDF trazem X na linha do Omnis", () => {
+    assert.equal(omnis(buildProposal(base).investment).quantity, "X");
   });
 });
 

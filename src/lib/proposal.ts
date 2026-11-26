@@ -30,6 +30,9 @@ export const DEFAULT_SIGNER_IDS = ["robson", "caio"] as const;
 export const DEFAULT_IMPLANTATION_CENTS = 28_000_00;
 export const DEFAULT_TRAINING_CENTS = 6_500_00;
 
+/** Qtd. do Data Omnis no Investimento Consolidado: sempre "X" (cortesia, não segue o nº de licenças). */
+export const DATA_OMNIS_QUANTITY = "X";
+
 /** Validade da proposta, em dias corridos (texto do modelo). */
 export const PROPOSAL_VALIDITY_DAYS = 30;
 
@@ -133,7 +136,7 @@ export function buildInvestment(input: Pick<ProposalInput, "billing" | "licenses
     });
   }
   recurring.push(
-    { item: item++, object: "Governança de IA – Data Omnis", quantity: String(totalQuantity), unit: "Licença", unitCents: null, totalCents: null },
+    { item: item++, object: "Governança de IA – Data Omnis", quantity: DATA_OMNIS_QUANTITY, unit: "Licença", unitCents: null, totalCents: null },
     { item: item++, object: "Implantação do Sistema Claude (Kickoff)", quantity: "1", unit: "Serviço", unitCents: null, totalCents: null },
   );
 

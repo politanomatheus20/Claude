@@ -246,6 +246,7 @@ export function ProposalBuilder({
 
 /** "9 licenças", "1 serviço", "12 mensalidades" (unidade "Mensal" fica igual). */
 function quantityLabel(quantity: string, unit: string) {
+  if (!/^\d+$/.test(quantity)) return quantity; // ex.: Data Omnis = "X"
   const u = unit.toLowerCase();
   return `${quantity} ${quantity === "1" || u === "mensal" ? u : `${u}s`}`;
 }
