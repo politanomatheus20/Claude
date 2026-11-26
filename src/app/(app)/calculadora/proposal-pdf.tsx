@@ -809,7 +809,7 @@ function Licensing() {
             "Até 150 usuários",
             "Mínimo de 20 usuários (sem limite superior)",
           ],
-          ["Modelos disponíveis", "Haiku, Sonnet, Opus", "Haiku, Sonnet, Opus"],
+          ["Modelos disponíveis", "Haiku, Sonnet, Opus, Fable", "Haiku, Sonnet, Opus, Fable"],
           [
             "Modelo de consumo",
             "Sessões diárias limitadas",
@@ -827,7 +827,7 @@ function Licensing() {
           ],
           [
             "Acesso à plataforma",
-            "Chat e desktop",
+            "Chat, desktop, Code, Cowork",
             "Chat, desktop, Code, Cowork e API",
           ],
           [
